@@ -56,6 +56,12 @@ class TestLoadConfig:
         result = load_config()
         assert result == DEFAULT_CONFIG
 
+    def test_invalid_json_logs_warning(self, isolated_config, capsys):
+        isolated_config.write_text("not valid json {{")
+        load_config()
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.out
+
 
 # ---------------------------------------------------------------------------
 # save_config

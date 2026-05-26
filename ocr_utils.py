@@ -270,12 +270,14 @@ def ocr_page_llm(
         body = exc.response.text
         if exc.response.status_code == 500:
             if "cudaMalloc" in body:
-                raise RuntimeError(
+                from exceptions import OcrOomError  # noqa: PLC0415
+                raise OcrOomError(
                     f"Ollama OCR model '{model}' ran out of GPU memory (CUDA OOM). "
                     f"Switch to a smaller model such as 'glm-ocr' in the Ollama OCR model setting."
                 ) from exc
             if "GGML_ASSERT" in body:
-                raise RuntimeError(
+                from exceptions import OcrModelError  # noqa: PLC0415
+                raise OcrModelError(
                     f"Ollama OCR model '{model}' hit an internal assertion error (GGML_ASSERT). "
                     f"This is a model compatibility issue with this specific page/image. "
                     f"Try a different OCR model such as 'deepseek-ocr' or 'minicpm-v'."

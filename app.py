@@ -6,6 +6,7 @@ Run: python app.py
 import asyncio
 import io
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -18,11 +19,12 @@ from typing import Literal, Optional
 import fitz  # PyMuPDF
 import gradio as gr
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from backends import test_libre_connection, test_ollama_connection, translate, translate_sync
+from exceptions import BackendConnectionError, OcrModelError, OcrOomError, RateLimitError
 from config import (
     CONFIG_PATH,
     OCR_DEFAULT_SERVICE,
@@ -44,10 +46,13 @@ from pdf_utils import pdf_to_image
 def _page_count(pdf_path: str | None) -> int:
     if not pdf_path:
         return 1
-    doc = fitz.open(pdf_path)
-    n = len(doc)
-    doc.close()
-    return n
+    try:
+        doc = fitz.open(pdf_path)
+        n = len(doc)
+        doc.close()
+        return n
+    except Exception:
+        return 1
 
 
 def on_pdf_upload(pdf_path: str | None):
@@ -438,6 +443,7 @@ class _Job:
     target: str | None = None
     backend: str | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    last_exc: BaseException | None = None        # last exception (for error_type classification)
     # Last result — persists until the next job starts
     last_status: str | None = None              # "completed" | "failed" | "cancelled"
     last_started_at: str | None = None
@@ -477,6 +483,8 @@ class ConfigUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 # REST API
 # ---------------------------------------------------------------------------
+
+_MAX_UPLOAD_BYTES = int(os.environ.get("PDF_TRANSLATE_MAX_UPLOAD_MB", "100")) * 1024 * 1024
 
 _API_DESCRIPTION = """
 Self-hosted PDF translation service.
@@ -542,8 +550,21 @@ async def api_config_get():
     return cfg
 
 
-def _classify_error(msg: str) -> str:
-    """Map an error message string to a machine-readable error_type for automation."""
+def _classify_error(msg: str, exc: BaseException | None = None) -> str:
+    """Map an exception (or its message) to a machine-readable error_type for automation.
+
+    Checks the exception type first (reliable), then falls back to message
+    string matching for errors that don't use typed exceptions yet.
+    """
+    if isinstance(exc, OcrOomError):
+        return "ocr_oom"
+    if isinstance(exc, OcrModelError):
+        return "ocr_model_error"
+    if isinstance(exc, RateLimitError):
+        return "translation_rate_limit"
+    if isinstance(exc, BackendConnectionError):
+        return "config_error"
+    # Fallback: string matching for untyped errors
     if "GGML_ASSERT" in msg:
         return "ocr_model_error"
     if "CUDA OOM" in msg:
@@ -591,6 +612,7 @@ async def api_translate_cancel():
 
 @api_app.post("/api/translate", summary="Translate a PDF", tags=["Translation"])
 async def api_translate(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF file to translate"),
     source: str = Form("auto", description="Source language code: 'auto', 'en', 'nl', 'de', …"),
     target: str = Form("en", description="Target language code: 'en', 'nl', 'de', 'fr', …"),
@@ -659,12 +681,29 @@ async def api_translate(
     cfg = load_config()
     backend = service or cfg["backend"]
 
-    # Save upload to a temp file
+    # Stream upload to a temp file; enforce size limit to avoid OOM on large files
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(await file.read())
         tmp_pdf = tmp.name
+        size = 0
+        while True:
+            chunk = await file.read(1024 * 1024)  # 1 MB chunks
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > _MAX_UPLOAD_BYTES:
+                tmp.close()
+                os.unlink(tmp_pdf)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large. Maximum upload size is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB. "
+                           f"Override with PDF_TRANSLATE_MAX_UPLOAD_MB env var.",
+                )
+            tmp.write(chunk)
 
-    # Queue management — no await between check and update: atomic in event loop
+    # Queue management — best-effort; not fully race-free under high concurrency.
+    # Known limitation: two simultaneous requests can both pass the _job.running
+    # check before either increments _job.queued. Acceptable for a single-user
+    # self-hosted PoC; fix with a proper async queue if multi-user support is added.
     if _job.running and _job.queued >= 1:
         os.unlink(tmp_pdf)
         raise HTTPException(
@@ -710,9 +749,11 @@ async def api_translate(
             except ValueError as exc:
                 job_status = "failed"
                 error_msg = str(exc)
+                _job.last_exc = exc
             except Exception as exc:
                 job_status = "failed"
                 error_msg = str(exc)
+                _job.last_exc = exc
             finally:
                 # Reset current job; persist last result
                 _job.running = False
@@ -733,10 +774,13 @@ async def api_translate(
         if error_msg and "No translatable" in error_msg:
             return JSONResponse(status_code=422, content={"detail": error_msg, "error_type": "no_text"})
         detail = f"Translation failed: {error_msg}"
-        return JSONResponse(status_code=500, content={"detail": detail, "error_type": _classify_error(error_msg or "")})
+        return JSONResponse(status_code=500, content={"detail": detail, "error_type": _classify_error(error_msg or "", _job.last_exc)})
 
     stem = Path(file.filename or "document").stem
     extra = {"X-Source-Lang": source, "X-Target-Lang": target, "X-Backend": backend}
+    # Schedule cleanup of the output temp dir after the response is sent.
+    out_dir = str(Path(translated_path).parent)
+    background_tasks.add_task(shutil.rmtree, out_dir, True)
 
     if outputs == "pdf":
         return FileResponse(
@@ -744,6 +788,7 @@ async def api_translate(
             media_type="application/pdf",
             filename=f"{stem}_{target}.pdf",
             headers=extra,
+            background=background_tasks,
         )
     if outputs == "sbs":
         return FileResponse(
@@ -751,6 +796,7 @@ async def api_translate(
             media_type="application/pdf",
             filename=f"{stem}_{source}_{target}_sbs.pdf",
             headers=extra,
+            background=background_tasks,
         )
     if outputs == "reading":
         return FileResponse(
@@ -758,8 +804,9 @@ async def api_translate(
             media_type="text/html",
             filename=f"{stem}_{source}_{target}_reading.html",
             headers=extra,
+            background=background_tasks,
         )
-    # outputs == "all" — zip all three
+    # outputs == "all" — zip all three into memory, then clean up
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(translated_path, f"{stem}_{target}.pdf")

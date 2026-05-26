@@ -98,6 +98,24 @@ class TestLibreTranslateCall:
             with pytest.raises(httpx.HTTPStatusError):
                 libre.call("hello", "en", "nl", "http://localhost:5000", key="")
 
+    def test_rate_limit_raises_after_all_retries(self):
+        """Exhausting all 429 retries raises RateLimitError (not HTTPStatusError)."""
+        from exceptions import RateLimitError
+        fake_resp_429 = _mock_response(status_code=429)
+        with patch("httpx.post", return_value=fake_resp_429):
+            with patch("time.sleep"):  # skip actual retry delays
+                with pytest.raises(RateLimitError):
+                    libre.call("hello", "en", "nl", "http://localhost:5000", key="")
+
+    def test_retries_on_429_then_succeeds(self):
+        """Returns translated text if a retry succeeds after a 429."""
+        resp_429 = _mock_response(status_code=429)
+        resp_ok  = _mock_response(json_data={"translatedText": "hallo"})
+        with patch("httpx.post", side_effect=[resp_429, resp_ok]):
+            with patch("time.sleep"):
+                result = libre.call("hello", "en", "nl", "http://localhost:5000", key="")
+        assert result == "hallo"
+
 
 class TestLibreTranslateConnection:
     def test_connection_success(self):

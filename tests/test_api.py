@@ -21,6 +21,73 @@ client = TestClient(api_app, raise_server_exceptions=False)
 # GET /api/health
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# _page_count
+# ---------------------------------------------------------------------------
+
+class TestPageCount:
+    def test_none_returns_1(self):
+        from app import _page_count
+        assert _page_count(None) == 1
+
+    def test_invalid_path_returns_1(self):
+        from app import _page_count
+        assert _page_count("/nonexistent/path/file.pdf") == 1
+
+    def test_valid_pdf_returns_page_count(self, minimal_pdf):
+        from app import _page_count
+        assert _page_count(str(minimal_pdf)) == 1
+
+
+# ---------------------------------------------------------------------------
+# _classify_error
+# ---------------------------------------------------------------------------
+
+class TestClassifyError:
+    def test_ocr_oom_error_type(self):
+        from app import _classify_error
+        from exceptions import OcrOomError
+        assert _classify_error("", OcrOomError("oom")) == "ocr_oom"
+
+    def test_ocr_model_error_type(self):
+        from app import _classify_error
+        from exceptions import OcrModelError
+        assert _classify_error("", OcrModelError("err")) == "ocr_model_error"
+
+    def test_rate_limit_error_type(self):
+        from app import _classify_error
+        from exceptions import RateLimitError
+        assert _classify_error("", RateLimitError("rate")) == "translation_rate_limit"
+
+    def test_backend_connection_error_type(self):
+        from app import _classify_error
+        from exceptions import BackendConnectionError
+        assert _classify_error("", BackendConnectionError("conn")) == "config_error"
+
+    def test_fallback_string_cuda_oom(self):
+        from app import _classify_error
+        assert _classify_error("CUDA OOM happened") == "ocr_oom"
+
+    def test_fallback_string_connection_refused(self):
+        from app import _classify_error
+        assert _classify_error("Connection refused") == "config_error"
+
+    def test_fallback_string_unknown(self):
+        from app import _classify_error
+        assert _classify_error("something completely different") == "translation_error"
+
+    def test_typed_exc_takes_priority_over_message(self):
+        """Type check must win even if message contains a different pattern."""
+        from app import _classify_error
+        from exceptions import OcrOomError
+        # Message says "connection refused" but type is OcrOomError → type wins
+        assert _classify_error("Connection refused", OcrOomError("oom")) == "ocr_oom"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/health
+# ---------------------------------------------------------------------------
+
 class TestHealth:
     def test_status_ok(self, reset_job):
         r = client.get("/api/health")
@@ -280,6 +347,42 @@ class TestTranslate:
                 },
             )
         assert r.status_code == 200
+
+    def test_upload_too_large_returns_413(self, reset_job):
+        import app
+        original = app._MAX_UPLOAD_BYTES
+        app._MAX_UPLOAD_BYTES = 10  # 10 bytes — tiny limit for test
+        try:
+            r = client.post(
+                "/api/translate",
+                files={"file": ("big.pdf", b"x" * 100, "application/pdf")},
+                data={"source": "en", "target": "nl"},
+            )
+        finally:
+            app._MAX_UPLOAD_BYTES = original
+        assert r.status_code == 413
+
+    def test_output_dir_cleaned_up_after_response(self, reset_job, minimal_pdf, tmp_path):
+        fake_translated = tmp_path / "translated.pdf"
+        fake_sbs        = tmp_path / "sbs.pdf"
+        fake_reading    = tmp_path / "reading.html"
+        fake_translated.write_bytes(b"%PDF-1.4 fake")
+        fake_sbs.write_bytes(b"%PDF-1.4 fake sbs")
+        fake_reading.write_text("<html></html>", encoding="utf-8")
+
+        with patch("app.translate_sync", return_value=(
+            str(fake_translated), str(fake_sbs), str(fake_reading)
+        )):
+            with patch("app.shutil.rmtree") as mock_rmtree:
+                r = client.post(
+                    "/api/translate",
+                    files={"file": ("doc.pdf", minimal_pdf.read_bytes(), "application/pdf")},
+                    data={"source": "en", "target": "nl"},
+                )
+        assert r.status_code == 200
+        mock_rmtree.assert_called_once()
+        cleaned_path = mock_rmtree.call_args[0][0]
+        assert str(tmp_path) in cleaned_path
 
     def test_processing_options_forwarded(self, reset_job, minimal_pdf, tmp_path):
         """merge_blocks, detect_tables, force_ocr values are forwarded to translate_sync."""

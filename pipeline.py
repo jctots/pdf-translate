@@ -94,6 +94,29 @@ class _DebugLog:
 # ---------------------------------------------------------------------------
 
 
+def _translate_one_block(
+    block: tuple,
+    source: str,
+    target: str,
+    service: str,
+    call_fn,
+    allow_wrap: bool,
+) -> tuple:
+    """Translate a single 9-tuple block and return the translated 9-tuple.
+
+    Handles text reflow (allow_wrap), calls the backend, applies the
+    LibreTranslate inter-call delay, and reconstructs the output tuple.
+    Raises whatever the backend raises — caller handles logging and cleanup.
+    """
+    x0, y0, x1, y1, text, fontsize, orig_font_name, flags, is_table_cell = block
+    if allow_wrap:
+        text = " ".join(text.split("\n"))
+    translated = call_fn(text, source, target)
+    if service == "LibreTranslate" and _LIBRE_BLOCK_DELAY_MS > 0:
+        time.sleep(_LIBRE_BLOCK_DELAY_MS / 1000)
+    return (x0, y0, x1, y1, translated, fontsize, orig_font_name, flags, is_table_cell)
+
+
 def _prog(orig_image: str, msg: str) -> tuple:
     """
     Intermediate progress yield — 11-tuple matching translate() output count.
@@ -231,7 +254,8 @@ def translate_pdf_generic(
 
     for p, blocks in enumerate(page_blocks):
         translated_blocks: list[tuple] = []
-        for i, (x0, y0, x1, y1, text, fontsize, orig_font_name, flags, is_table_cell) in enumerate(blocks):
+        for i, block in enumerate(blocks):
+            x0, y0, x1, y1, text, fontsize, orig_font_name, flags, is_table_cell = block
             done += 1
             remaining = total_blocks - done
             prog_msg = f"Page {p + 1}/{n_pages} — block {i + 1}/{len(blocks)} ({remaining} remaining)"
@@ -241,10 +265,10 @@ def translate_pdf_generic(
             else:
                 _status(prog_msg)
 
-            if allow_wrap:
-                text = " ".join(text.split("\n"))
             try:
-                translated = call_fn(text, source, target)
+                translated_block = _translate_one_block(
+                    block, source, target, service, call_fn, allow_wrap
+                )
             except Exception as exc:
                 err_msg = f"[error] p{p+1} block {i+1}: {exc}"
                 if log:
@@ -252,9 +276,7 @@ def translate_pdf_generic(
                 if _DEBUG:
                     yield _prog(orig_image, err_msg)
                 raise
-            if service == "LibreTranslate" and _LIBRE_BLOCK_DELAY_MS > 0:
-                time.sleep(_LIBRE_BLOCK_DELAY_MS / 1000)
-            translated_blocks.append((x0, y0, x1, y1, translated, fontsize, orig_font_name, flags, is_table_cell))
+            translated_blocks.append(translated_block)
         page_translations.append(translated_blocks)
 
     writing_msg = "Writing outputs…"
@@ -357,23 +379,20 @@ def translate_pdf_sync(
     page_translations: list[list[tuple]] = []
     for p, blocks in enumerate(page_blocks):
         translated_blocks: list[tuple] = []
-        for i, (x0, y0, x1, y1, text, fontsize, orig_font_name, flags, is_table_cell) in enumerate(blocks):
+        for i, block in enumerate(blocks):
+            x0, y0, x1, y1, text, fontsize, orig_font_name, flags, is_table_cell = block
             if log:
                 log.log(f"p{p+1} block {i+1}/{len(blocks)}  size={fontsize:.1f}  font={orig_font_name!r}  text={repr(text[:40])}")
-            if allow_wrap:
-                text = " ".join(text.split("\n"))
             try:
-                translated = call_fn(text, source, target)
+                translated_block = _translate_one_block(
+                    block, source, target, service, call_fn, allow_wrap
+                )
             except Exception as exc:
                 if log:
                     log.log(f"[error] p{p+1} block {i+1}: {exc}")
                     log.close("ABORTED on error")
                 raise
-            if service == "LibreTranslate" and _LIBRE_BLOCK_DELAY_MS > 0:
-                time.sleep(_LIBRE_BLOCK_DELAY_MS / 1000)
-            translated_blocks.append(
-                (x0, y0, x1, y1, translated, fontsize, orig_font_name, flags, is_table_cell)
-            )
+            translated_blocks.append(translated_block)
         page_translations.append(translated_blocks)
 
     translated_pdf_path, sbs_pdf_path, reading_pdf_path, _ = _build_outputs(

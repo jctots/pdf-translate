@@ -67,6 +67,7 @@ def reset_job():
     app._job.last_target = None
     app._job.last_backend = None
     app._job.last_error = None
+    app._job.last_exc = None
     yield
     # Reset again after test in case it mutated state
     app._job.running = False

@@ -10,6 +10,7 @@ import time
 import httpx
 
 from config import CONNECTION_TIMEOUT, TRANSLATE_TIMEOUT
+from exceptions import RateLimitError
 
 _RETRY_DELAYS = (2.0, 4.0, 8.0)  # seconds between 429 retries (3 retries total)
 
@@ -45,6 +46,10 @@ def call(text: str, source: str, target: str, url: str, key: str) -> str:
     for attempt, delay in enumerate((*_RETRY_DELAYS, None)):
         r = httpx.post(endpoint, json=payload, timeout=TRANSLATE_TIMEOUT)
         if r.status_code != 429 or delay is None:
+            if r.status_code == 429:
+                raise RateLimitError(
+                    f"LibreTranslate rate limit exceeded after {len(_RETRY_DELAYS)} retries."
+                )
             r.raise_for_status()
             return r.json()["translatedText"]
         time.sleep(delay)
