@@ -6,6 +6,7 @@ Run: python app.py
 import asyncio
 import io
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -18,7 +19,7 @@ from typing import Literal, Optional
 import fitz  # PyMuPDF
 import gradio as gr
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
@@ -44,10 +45,13 @@ from pdf_utils import pdf_to_image
 def _page_count(pdf_path: str | None) -> int:
     if not pdf_path:
         return 1
-    doc = fitz.open(pdf_path)
-    n = len(doc)
-    doc.close()
-    return n
+    try:
+        doc = fitz.open(pdf_path)
+        n = len(doc)
+        doc.close()
+        return n
+    except Exception:
+        return 1
 
 
 def on_pdf_upload(pdf_path: str | None):
@@ -591,6 +595,7 @@ async def api_translate_cancel():
 
 @api_app.post("/api/translate", summary="Translate a PDF", tags=["Translation"])
 async def api_translate(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF file to translate"),
     source: str = Form("auto", description="Source language code: 'auto', 'en', 'nl', 'de', …"),
     target: str = Form("en", description="Target language code: 'en', 'nl', 'de', 'fr', …"),
@@ -737,6 +742,9 @@ async def api_translate(
 
     stem = Path(file.filename or "document").stem
     extra = {"X-Source-Lang": source, "X-Target-Lang": target, "X-Backend": backend}
+    # Schedule cleanup of the output temp dir after the response is sent.
+    out_dir = str(Path(translated_path).parent)
+    background_tasks.add_task(shutil.rmtree, out_dir, True)
 
     if outputs == "pdf":
         return FileResponse(
@@ -744,6 +752,7 @@ async def api_translate(
             media_type="application/pdf",
             filename=f"{stem}_{target}.pdf",
             headers=extra,
+            background=background_tasks,
         )
     if outputs == "sbs":
         return FileResponse(
@@ -751,6 +760,7 @@ async def api_translate(
             media_type="application/pdf",
             filename=f"{stem}_{source}_{target}_sbs.pdf",
             headers=extra,
+            background=background_tasks,
         )
     if outputs == "reading":
         return FileResponse(
@@ -758,8 +768,9 @@ async def api_translate(
             media_type="text/html",
             filename=f"{stem}_{source}_{target}_reading.html",
             headers=extra,
+            background=background_tasks,
         )
-    # outputs == "all" — zip all three
+    # outputs == "all" — zip all three into memory, then clean up
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(translated_path, f"{stem}_{target}.pdf")

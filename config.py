@@ -106,8 +106,8 @@ def load_config() -> dict:
         try:
             with CONFIG_PATH.open() as f:
                 return {**DEFAULT_CONFIG, **json.load(f)}
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[pdf-translate] WARNING: failed to load {CONFIG_PATH}: {exc} — using defaults", flush=True)
     return dict(DEFAULT_CONFIG)
 
 
