@@ -62,10 +62,12 @@ def translate(
     ocr_config = {"url": ollama_url, "model": ocr_ollama_model, "prompt": ocr_ollama_prompt}
 
     if service == "LibreTranslate":
-        call_fn = lambda text, src, tgt: libretranslate.call(text, src, tgt, libre_url, libre_key)  # noqa: E731
+        def call_fn(text: str, src: str, tgt: str) -> str:
+            return libretranslate.call(text, src, tgt, libre_url, libre_key)
         meta = {"service": service, "url": libre_url}
     elif service == "Ollama":
-        call_fn = lambda text, src, tgt: ollama.call(text, src, tgt, ollama_url, ollama_model, ollama_system_prompt, ollama_key)  # noqa: E731
+        def call_fn(text: str, src: str, tgt: str) -> str:
+            return ollama.call(text, src, tgt, ollama_url, ollama_model, ollama_system_prompt, ollama_key)
         meta = {"service": service, "url": ollama_url, "model": ollama_model}
     elif service == "Google":
         call_fn = google.call
@@ -125,13 +127,15 @@ def translate_sync(
     if service == "LibreTranslate":
         url = libre_url or cfg["libre_url"]
         key = libre_key if libre_key is not None else cfg["libre_key"]
-        call_fn = lambda text, src, tgt: libretranslate.call(text, src, tgt, url, key)  # noqa: E731
+        def call_fn(text: str, src: str, tgt: str) -> str:
+            return libretranslate.call(text, src, tgt, url, key)
     elif service == "Ollama":
         url    = ollama_url    or cfg["ollama_url"]
         model  = ollama_model  or cfg["ollama_model"]
         prompt = ollama_system_prompt or cfg["ollama_system_prompt"]
         key    = ollama_key if ollama_key is not None else cfg["ollama_key"]
-        call_fn = lambda text, src, tgt: ollama.call(text, src, tgt, url, model, prompt, key)  # noqa: E731
+        def call_fn(text: str, src: str, tgt: str) -> str:
+            return ollama.call(text, src, tgt, url, model, prompt, key)
     elif service == "Google":
         call_fn = google.call
     else:
