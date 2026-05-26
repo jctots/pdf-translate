@@ -44,6 +44,10 @@ No `translate_pdf()` wrapper is needed — the pipeline is handled centrally in 
 - All tests must pass: `pytest`.
 - Follow the existing code style (no formatter enforced; match surrounding code).
 
+## 📋 Changelog
+
+Release history is tracked in [GitHub Releases](https://github.com/jctots/pdf-translate/releases).
+
 ## 🐛 Reporting bugs
 
 Open a [GitHub issue](../../issues) with:
