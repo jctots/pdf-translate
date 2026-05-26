@@ -4,6 +4,10 @@
 
 Upload a PDF, pick your languages and backend, get a translated PDF — with the original layout intact. No cloud accounts. No file size limits. No data leaving your network.
 
+[![Tests](https://github.com/jctots/pdf-translate/actions/workflows/tests.yml/badge.svg)](https://github.com/jctots/pdf-translate/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Docker](https://ghcr-badge.egpl.dev/jctots/pdf-translate/size?tag=main&label=ghcr.io)](https://github.com/jctots/pdf-translate/pkgs/container/pdf-translate)
+
 ![Demo](docs/assets/demo-animation.gif)
 
 **Try it yourself** — click to open each file:
@@ -14,10 +18,6 @@ Upload a PDF, pick your languages and backend, get a translated PDF — with the
 | [demo-document-de_en.pdf](docs/assets/demo-document-de_en.pdf) | Output — translated PDF (layout preserved) |
 | [demo-document-de_de_en.pdf](docs/assets/demo-document-de_de_en.pdf) | Output — side-by-side PDF (original \| translation) |
 | [demo-document-de_de_en.html](docs/assets/demo-document-de_de_en.html) | Output — HTML reading view |
-
-[![Tests](https://github.com/jctots/pdf-translate/actions/workflows/tests.yml/badge.svg)](https://github.com/jctots/pdf-translate/actions/workflows/tests.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Docker](https://ghcr-badge.egpl.dev/jctots/pdf-translate/size?tag=main&label=ghcr.io)](https://github.com/jctots/pdf-translate/pkgs/container/pdf-translate)
 
 ## ✨ Why pdf-translate?
 
