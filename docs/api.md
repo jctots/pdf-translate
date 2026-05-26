@@ -2,8 +2,6 @@
 
 Interactive API docs (Swagger UI) are available at **`http://localhost:7860/docs`** while the app is running. This document covers operational concerns not captured by Swagger: timeouts, queue behaviour, the cancellation workflow, and integration examples.
 
----
-
 ## 📋 Endpoints
 
 | Method | Path | Purpose |
@@ -13,8 +11,6 @@ Interactive API docs (Swagger UI) are available at **`http://localhost:7860/docs
 | `PATCH` | `/api/config` | Partially update backend configuration |
 | `POST` | `/api/translate` | Translate a PDF |
 | `DELETE` | `/api/translate` | Cancel the running translation |
-
----
 
 ## ⏱️ Synchronous behaviour and timeouts
 
@@ -56,8 +52,6 @@ location / {
 }
 ```
 
----
-
 ## 🔄 Queue
 
 One translation runs at a time. One additional request may wait.
@@ -69,8 +63,6 @@ One translation runs at a time. One additional request may wait.
 | 1 job running, 1 waiting | Request receives **429** with `Retry-After: 60` |
 
 The `GET /api/health` response includes `job.queued` — the number of requests currently waiting.
-
----
 
 ## 🔍 What to do after a client timeout
 
@@ -132,8 +124,6 @@ Fix the backend issue, then retry.
 
 `last` persists until the next job starts. It is reset to `null` on first run after a restart.
 
----
-
 ## 🛑 Cancellation
 
 To stop a stuck or long-running translation:
@@ -154,8 +144,6 @@ Response:
 
 After cancellation, the blocked `POST /api/translate` call returns **409**. The health endpoint reports `last.status: "cancelled"`.
 
----
-
 ## ⚙️ Processing options
 
 The following form fields control how the PDF is scanned and prepared before translation. All are optional; defaults match the UI defaults.
@@ -168,8 +156,6 @@ The following form fields control how the PDF is scanned and prepared before tra
 | `detect_tables` | bool | `true` | Use PyMuPDF's table detector to identify table cells and apply shrink-to-fit text fitting. Disable if translated text appears abnormally small — this indicates a false-positive table detection. |
 | `force_ocr` | bool | `false` | Ignore the existing text layer entirely and OCR every page as an image (using the backend's OCR engine). Use for mixed PDFs where digital and scanned content are interleaved and translating the text layer alone gives incomplete results. Requires OCR dependencies (Tesseract or reachable Ollama vision model). |
 
----
-
 ## 📦 Output formats
 
 The `outputs` form field controls what is returned:
@@ -178,12 +164,10 @@ The `outputs` form field controls what is returned:
 |-------|-------------|-------------|
 | `pdf` (default) | `application/pdf` | Translated PDF only |
 | `sbs` | `application/pdf` | Side-by-side landscape PDF, layout-matched (original \| translation) |
-| `reading` | `application/pdf` | Side-by-side landscape PDF, clean text (original \| translation) |
+| `reading` | `text/html` | HTML reading view — original and translated text side by side, clean and reflowable |
 | `all` | `application/zip` | Zip containing all three files |
 
 The translated PDF always has a selectable text layer (not a scanned image). When uploaded to Paperless-ngx, Paperless will index the translated text.
-
----
 
 ## 🔧 Configuration
 
@@ -208,8 +192,6 @@ curl -X PATCH http://localhost:7860/api/config \
 ```
 
 Only supplied fields are changed. Changes persist to `config.json` immediately — no restart needed. The Gradio UI reflects the new values on next page load.
-
----
 
 ## ❌ Error reference
 
@@ -268,8 +250,6 @@ POST /api/translate
 
 `PATCH /api/config` changes persist to `config.json` immediately — subsequent translation calls use the new values.
 
----
-
 ## 📄 Paperless-ngx integration
 
 ### Post-consumption script
@@ -302,10 +282,8 @@ TIMEOUT     = 600.0  # seconds — raise for large documents or slow backends
 # OCR model fallback chain: try each in order on GGML_ASSERT or OOM
 OCR_MODEL_FALLBACKS = ["glm-ocr", "deepseek-ocr", "minicpm-v"]
 
-
 def patch_config(client: httpx.Client, **fields) -> None:
     client.patch(f"{API_BASE}/api/config", json=fields, timeout=10.0).raise_for_status()
-
 
 def translate(client: httpx.Client, pdf_path: str, **extra_fields) -> bytes:
     with open(pdf_path, "rb") as f:
@@ -317,7 +295,6 @@ def translate(client: httpx.Client, pdf_path: str, **extra_fields) -> bytes:
         )
     r.raise_for_status()
     return r.content
-
 
 def run(pdf_path: str) -> None:
     with httpx.Client() as client:
@@ -408,7 +385,6 @@ def run(pdf_path: str) -> None:
         print(f"[pdf-translate] unhandled error — skipping document", file=sys.stderr)
         sys.exit(1)
 
-
 if __name__ == "__main__":
     pdf_path = os.environ.get("DOCUMENT_WORKING_PATH")
     if not pdf_path:
@@ -424,15 +400,13 @@ if __name__ == "__main__":
 - `patch_config` changes persist to `config.json`. If multiple documents are processed concurrently (unlikely with the queue), config changes may interfere. The queue (max 1 waiting) provides a natural serialisation barrier.
 - For selective translation (only certain languages or document types), check `DOCUMENT_ORIGINAL_FILENAME` or use Paperless workflows to conditionally trigger the script.
 
----
-
 ## ⚡ Quick reference
 
 ```bash
 # Health check
 curl http://localhost:7860/api/health
 
-# Translate a PDF (Google, default output = translated PDF)
+# Translate a PDF (default backend, default output = translated PDF)
 curl -X POST http://localhost:7860/api/translate \
   -F "file=@document.pdf" \
   -F "source=nl" -F "target=en" \

@@ -1,5 +1,6 @@
 volumes:
   pdf_translate_data:
+  libretranslate_data:    # remove this line if using an external LibreTranslate instance
 
 services:
   pdf-translate:
@@ -11,10 +12,37 @@ services:
       - "7860:7860"
     volumes:
       - pdf_translate_data:/app/data
-    # environment:
-      # Delay between LibreTranslate API calls (ms). Prevents 429 on self-hosted instances.
-      # Only applied when LibreTranslate backend is active. Set to 0 to disable. Default: 200
+    environment:
+      # Default backend on first launch (before config.json is created).
+      # "LibreTranslate" uses the bundled service below — private, no internet needed.
+      # Change to "Google" or "Ollama" if you prefer a different default.
+      - PDF_TRANSLATE_BACKEND=LibreTranslate
+      # URL for LibreTranslate. Points to the bundled service by default.
+      # If you use an external instance, set this to its URL and remove
+      # the libretranslate service block and libretranslate_data volume below.
+      - LIBRETRANSLATE_URL=http://libretranslate:5000
+      # Delay between LibreTranslate API calls (ms). Prevents 429 on self-hosted
+      # instances. Only applied when LibreTranslate backend is active. Default: 200
       # - LIBRETRANSLATE_BLOCK_DELAY_MS=200
       # Enable debug info in the status box and docker logs (1=on, 0=off). Default: off
       # - PDF_TRANSLATE_DEBUG=1
+    restart: unless-stopped
+    depends_on:
+      - libretranslate
+
+  # Bundled private translation backend — no data leaves your network.
+  # First startup downloads ~2 GB of language models; subsequent starts are instant.
+  #
+  # To use an external LibreTranslate instance instead:
+  #   1. Remove or comment out this entire service block.
+  #   2. Remove the libretranslate_data volume above.
+  #   3. Remove the depends_on block from pdf-translate above.
+  #   4. Set LIBRETRANSLATE_URL to your instance URL.
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - libretranslate_data:/home/libretranslate/.local/share
+    command: --req-limit 0 --load-only en,de,fr,es,it,nl,pt,ru,pl,ar,zh,ja,ko,tr
     restart: unless-stopped

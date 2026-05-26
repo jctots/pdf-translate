@@ -3,6 +3,7 @@ pdf-translate — configuration constants and persistence.
 """
 
 import json
+import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -43,7 +44,13 @@ TARGET_LANGUAGES = SOURCE_LANGUAGES[1:]  # no Auto-detect
 
 OLLAMA_DEFAULT_URL   = "http://localhost:11434"
 OLLAMA_DEFAULT_MODEL = "translategemma:latest"
-LIBRE_DEFAULT_URL    = "http://localhost:5000"
+# Can be overridden by LIBRETRANSLATE_URL env var (set in docker-compose when
+# the bundled LibreTranslate service is used).
+LIBRE_DEFAULT_URL    = os.environ.get("LIBRETRANSLATE_URL", "http://localhost:5000")
+# Can be overridden by PDF_TRANSLATE_BACKEND env var.
+# Bare Python install: "Google" (no setup needed).
+# Docker with bundled LibreTranslate: set to "LibreTranslate" in docker-compose.
+DEFAULT_BACKEND      = os.environ.get("PDF_TRANSLATE_BACKEND", "Google")
 
 # OCR defaults — kept in sync with ocr_utils constants (duplicated here to
 # avoid importing ocr_utils at config load time, which would pull in fitz).
@@ -69,7 +76,7 @@ OLLAMA_DEFAULT_SYSTEM_PROMPT = (
 CONFIG_PATH = Path(__file__).parent / "data" / "config.json"
 
 DEFAULT_CONFIG: dict = {
-    "backend":              "Google",
+    "backend":              DEFAULT_BACKEND,
     "source":               "auto",
     "target":               "en",
     "allow_wrap":           False,

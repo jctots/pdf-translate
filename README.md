@@ -4,13 +4,11 @@
 
 Upload a PDF, pick your languages and backend, get a translated PDF — with the original layout intact. No cloud accounts. No file size limits. No data leaving your network.
 
-> 📹 *Demo coming soon — [docs/assets/demo.gif](docs/assets/demo.gif)*
+![Demo](docs/assets/demo-animation.gif)
 
 [![Tests](https://github.com/jctots/pdf-translate/actions/workflows/tests.yml/badge.svg)](https://github.com/jctots/pdf-translate/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Docker](https://ghcr-badge.egpl.dev/jctots/pdf-translate/latest_tag?trim=major&label=ghcr.io)](https://github.com/jctots/pdf-translate/pkgs/container/pdf-translate)
-
----
+[![Docker](https://ghcr-badge.egpl.dev/jctots/pdf-translate/size?tag=main&label=ghcr.io)](https://github.com/jctots/pdf-translate/pkgs/container/pdf-translate)
 
 ## ✨ Why pdf-translate?
 
@@ -18,13 +16,10 @@ Most PDF translation tools either **send your files to the cloud** or **destroy 
 
 - 🔒 **Privacy-first** — use Ollama or LibreTranslate and your PDFs never leave your machine or LAN
 - 📐 **Layout preserved** — text is placed back at the original position; images, tables, and structure stay intact
-- 🚀 **Zero-config fallback** — Google Translate works out of the box, no API key needed
 - 🖥️ **Self-hosted** — Docker Compose in two minutes; runs on any machine or home server
 - 🔌 **REST API included** — automate with curl, Python, or integrate with Paperless-ngx
 - 🔍 **Scanned PDF support** — Tesseract OCR and Ollama vision models (glm-ocr) handle image-only PDFs
 - 📄 **Three output formats** — translated PDF, side-by-side comparison PDF, HTML reading view
-
----
 
 ## 📊 How it compares
 
@@ -41,41 +36,44 @@ Most PDF translation tools either **send your files to the cloud** or **destroy 
 
 **When to choose pdf-translate:** general documents — manuals, reports, contracts, invoices, scanned archives. Not the right tool for academic papers with LaTeX formulas (use [pdf2zh-next](https://github.com/pdf2zh/pdf2zh-next) for those).
 
----
-
 ## 🚀 Quick start
+
+### 🐳 Docker (recommended — private by default)
 
 **Requires:** Docker and Docker Compose.
 
 ```bash
-# 1. Clone
 git clone https://github.com/jctots/pdf-translate.git
 cd pdf-translate
-
-# 2. Start
 docker compose up -d
-
-# 3. Open
 open http://localhost:7860
 ```
 
-That's it. Google Translate is active by default — no configuration needed.
+**LibreTranslate starts alongside pdf-translate — your documents never leave your network.**
+First startup downloads ~2 GB of language models; subsequent starts are instant.
 
-> For private translation (no internet required), set up [Ollama or LibreTranslate](docs/backends.md).
+To use an external LibreTranslate instance or Ollama instead, see [docs/backends.md](docs/backends.md).
 
----
+### 🐍 Bare Python (testing only)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python app.py
+```
+
+> ⚠️ **The bare Python install defaults to Google Translate** — your PDF text is sent to Google's servers. This is intentional for quick local testing, but not suitable for sensitive documents. Switch to LibreTranslate or Ollama in the UI before translating anything private.
 
 ## 🔧 Translation backends
 
 | Backend | Privacy | Requires | Best for |
 |---------|---------|---------|---------|
-| **Google Translate** | ☁️ Cloud | Internet access | Quick tests, public documents |
 | **Ollama** | 🔒 Local | Ollama + a translation model | Sensitive documents, offline use |
-| **LibreTranslate** | 🔒 Local | Self-hosted LT instance | Open-source alternative to Google |
+| **LibreTranslate** | 🔒 Local | Self-hosted LT instance | Open-source, no cloud dependency |
+| **Google Translate** | ☁️ Cloud | Internet access | Quick tests and public documents only |
 
 Switch backends in the UI or via API — no restart needed.
-
----
 
 ## 📦 Output formats
 
@@ -86,8 +84,6 @@ Every translation produces three files:
 | **Translated PDF** | Original layout, translated text. Selectable and searchable. |
 | **Side-by-side PDF** | Original \| Translation in landscape. Layout-matched for visual comparison. |
 | **HTML reading view** | Clean, reflowable — original and translated text side by side. Easiest to read when translated text is small. |
-
----
 
 ## 🔌 REST API
 
@@ -109,8 +105,6 @@ curl -X DELETE http://localhost:7860/api/translate
 
 Swagger UI at [`/docs`](http://localhost:7860/docs) · Full reference in [docs/api.md](docs/api.md)
 
----
-
 ## 🛠️ Advanced options
 
 | Option | Default | Purpose |
@@ -121,19 +115,6 @@ Swagger UI at [`/docs`](http://localhost:7860/docs) · Full reference in [docs/a
 | **Filter icon glyphs** | On | Strip icon font characters that would otherwise appear as random letters. |
 | **Allow text reflow** | Off | Collapse hard line breaks within paragraphs before translating. |
 
----
-
-## 📁 Python setup (without Docker)
-
-```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
-```
-
----
-
 ## 📚 Documentation
 
 | Doc | Contents |
@@ -143,19 +124,13 @@ python app.py
 | [Backends](docs/backends.md) | Ollama and LibreTranslate setup (local + Docker Compose) |
 | [Testing](docs/testing.md) | Running the test suite |
 
----
-
 ## 🤝 Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). All HTTP calls in the test suite are mocked — no live services needed to run tests.
-
----
 
 ## 📄 License
 
 MIT — see [LICENSE](LICENSE).
 Bundled Liberation fonts: SIL Open Font License.
-
----
 
 *Built with [Claude Code](https://claude.ai/code) by Anthropic.*

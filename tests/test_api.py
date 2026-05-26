@@ -166,13 +166,13 @@ class TestTranslate:
         assert r.status_code == 422
 
     def test_success_returns_pdf(self, reset_job, minimal_pdf, tmp_path):
-        # Create fake output PDFs to return
+        # Create fake output files to return
         fake_translated = tmp_path / "translated.pdf"
         fake_sbs = tmp_path / "sbs.pdf"
-        fake_reading = tmp_path / "reading.pdf"
+        fake_reading = tmp_path / "reading.html"
         fake_translated.write_bytes(b"%PDF-1.4 fake")
         fake_sbs.write_bytes(b"%PDF-1.4 fake sbs")
-        fake_reading.write_bytes(b"%PDF-1.4 fake reading")
+        fake_reading.write_text("<html><body>reading</body></html>", encoding="utf-8")
 
         with patch("app.translate_sync", return_value=(
             str(fake_translated), str(fake_sbs), str(fake_reading)
@@ -190,9 +190,10 @@ class TestTranslate:
     def test_success_sbs_output(self, reset_job, minimal_pdf, tmp_path):
         fake_translated = tmp_path / "translated.pdf"
         fake_sbs = tmp_path / "sbs.pdf"
-        fake_reading = tmp_path / "reading.pdf"
-        for p in (fake_translated, fake_sbs, fake_reading):
-            p.write_bytes(b"%PDF-1.4 fake")
+        fake_reading = tmp_path / "reading.html"
+        fake_translated.write_bytes(b"%PDF-1.4 fake")
+        fake_sbs.write_bytes(b"%PDF-1.4 fake sbs")
+        fake_reading.write_text("<html><body>reading</body></html>", encoding="utf-8")
 
         with patch("app.translate_sync", return_value=(
             str(fake_translated), str(fake_sbs), str(fake_reading)
@@ -204,6 +205,26 @@ class TestTranslate:
             )
         assert r.status_code == 200
         assert r.headers["content-type"] == "application/pdf"
+
+    def test_success_reading_output(self, reset_job, minimal_pdf, tmp_path):
+        fake_translated = tmp_path / "translated.pdf"
+        fake_sbs = tmp_path / "sbs.pdf"
+        fake_reading = tmp_path / "doc_en_nl_reading.html"
+        fake_translated.write_bytes(b"%PDF-1.4 fake")
+        fake_sbs.write_bytes(b"%PDF-1.4 fake sbs")
+        fake_reading.write_text("<html><body>reading view</body></html>", encoding="utf-8")
+
+        with patch("app.translate_sync", return_value=(
+            str(fake_translated), str(fake_sbs), str(fake_reading)
+        )):
+            r = client.post(
+                "/api/translate",
+                files={"file": ("doc.pdf", minimal_pdf.read_bytes(), "application/pdf")},
+                data={"source": "en", "target": "nl", "outputs": "reading"},
+            )
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert r.headers.get("content-disposition", "").endswith("_reading.html\"")
 
     def test_no_translatable_blocks_returns_422(self, reset_job, minimal_pdf):
         with patch("app.translate_sync", side_effect=ValueError("No translatable text blocks found")):
@@ -240,9 +261,10 @@ class TestTranslate:
         """merge_blocks, detect_tables=false, force_ocr are accepted without 422."""
         fake_translated = tmp_path / "translated.pdf"
         fake_sbs        = tmp_path / "sbs.pdf"
-        fake_reading    = tmp_path / "reading.pdf"
-        for p in (fake_translated, fake_sbs, fake_reading):
-            p.write_bytes(b"%PDF-1.4 fake")
+        fake_reading    = tmp_path / "reading.html"
+        fake_translated.write_bytes(b"%PDF-1.4 fake")
+        fake_sbs.write_bytes(b"%PDF-1.4 fake")
+        fake_reading.write_text("<html></html>", encoding="utf-8")
 
         with patch("app.translate_sync", return_value=(
             str(fake_translated), str(fake_sbs), str(fake_reading)
@@ -264,9 +286,10 @@ class TestTranslate:
         from unittest.mock import MagicMock
         fake_translated = tmp_path / "translated.pdf"
         fake_sbs        = tmp_path / "sbs.pdf"
-        fake_reading    = tmp_path / "reading.pdf"
-        for p in (fake_translated, fake_sbs, fake_reading):
-            p.write_bytes(b"%PDF-1.4 fake")
+        fake_reading    = tmp_path / "reading.html"
+        fake_translated.write_bytes(b"%PDF-1.4 fake")
+        fake_sbs.write_bytes(b"%PDF-1.4 fake")
+        fake_reading.write_text("<html></html>", encoding="utf-8")
 
         mock_sync = MagicMock(return_value=(
             str(fake_translated), str(fake_sbs), str(fake_reading)

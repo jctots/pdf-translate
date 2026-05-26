@@ -169,32 +169,33 @@ with gr.Blocks(title="PDF Translate") as gradio_app:
                 choices=["Ollama", "LibreTranslate", "Google"],
                 value=cfg["backend"],
             )
-            ocr_service = gr.Dropdown(
-                label="OCR engine (scanned PDFs only)",
-                choices=["Tesseract", "Ollama"],
-                value=cfg.get("ocr_service", OCR_DEFAULT_SERVICE),
-            )
-            allow_wrap_cb = gr.Checkbox(
-                label="Allow text reflow (collapse line breaks)",
-                value=cfg["allow_wrap"],
-            )
-            filter_icons_cb = gr.Checkbox(
-                label="Filter icon/symbol glyphs",
-                value=cfg["filter_icons"],
-            )
-            merge_blocks_cb = gr.Checkbox(
-                label="Merge split lines",
-                value=cfg.get("merge_blocks", False),
-            )
-            detect_tables_cb = gr.Checkbox(
-                label="Detect table cells (shrink-to-fit)",
-                value=cfg.get("detect_tables", True),
-            )
-            force_ocr_cb = gr.Checkbox(
-                label="Force OCR (ignore text layer)",
-                value=cfg.get("force_ocr", False),
-            )
             translate_btn = gr.Button("Translate", variant="primary", size="lg")
+            with gr.Accordion("Advanced settings", open=False):
+                force_ocr_cb = gr.Checkbox(
+                    label="Force OCR (ignore text layer)",
+                    value=cfg.get("force_ocr", False),
+                )
+                ocr_service = gr.Dropdown(
+                    label="OCR engine (scanned PDFs only)",
+                    choices=["Tesseract", "Ollama"],
+                    value=cfg.get("ocr_service", OCR_DEFAULT_SERVICE),
+                )
+                allow_wrap_cb = gr.Checkbox(
+                    label="Allow text reflow (collapse line breaks)",
+                    value=cfg["allow_wrap"],
+                )
+                filter_icons_cb = gr.Checkbox(
+                    label="Filter icon/symbol glyphs",
+                    value=cfg["filter_icons"],
+                )
+                merge_blocks_cb = gr.Checkbox(
+                    label="Merge split lines (DTP/InDesign PDFs)",
+                    value=cfg.get("merge_blocks", False),
+                )
+                detect_tables_cb = gr.Checkbox(
+                    label="Detect table cells (shrink-to-fit)",
+                    value=cfg.get("detect_tables", True),
+                )
             status_box = gr.Textbox(
                 label="Status",
                 interactive=False,
@@ -626,7 +627,7 @@ async def api_translate(
             "Output format: "
             "'pdf' — translated PDF (default); "
             "'sbs' — side-by-side landscape PDF, layout-matched (original | translation); "
-            "'reading' — side-by-side landscape PDF, clean text (original | translation); "
+            "'reading' — HTML reading view, original and translated text side by side, clean and reflowable; "
             "'all' — zip archive containing all three."
         ),
     ),
@@ -754,8 +755,8 @@ async def api_translate(
     if outputs == "reading":
         return FileResponse(
             reading_path,
-            media_type="application/pdf",
-            filename=f"{stem}_{source}_{target}_reading.pdf",
+            media_type="text/html",
+            filename=f"{stem}_{source}_{target}_reading.html",
             headers=extra,
         )
     # outputs == "all" — zip all three
@@ -763,7 +764,7 @@ async def api_translate(
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(translated_path, f"{stem}_{target}.pdf")
         zf.write(sbs_path,        f"{stem}_{source}_{target}_sbs.pdf")
-        zf.write(reading_path,    f"{stem}_{source}_{target}_reading.pdf")
+        zf.write(reading_path,    f"{stem}_{source}_{target}_reading.html")
     buf.seek(0)
     zip_headers = {
         **extra,

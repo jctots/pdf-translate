@@ -249,37 +249,84 @@ def prescan_blocks(
                     continue
                 if not all(_is_horizontal(ln) for ln in lines):
                     continue
-                # Build block text.  When filter_icons=True (default), single-char
-                # lines are dropped — icon glyphs embedded in mixed blocks (e.g., a
-                # phone icon "B" between "Contact:" and a phone number) are removed
-                # so they don't reach the translation API and come back as letters.
-                # When filter_icons=False, all lines are kept; icons may appear as
-                # letters in the output but their position is preserved.
-                text_lines: list[str] = []
-                for ln in lines:
-                    ln_text = "".join(sp["text"] for sp in ln.get("spans", []))
-                    if not filter_icons or len(_visible_chars(ln_text)) > 1:
-                        text_lines.append(ln_text)
 
-                text = "\n".join(text_lines).strip()
-                if not text:
-                    continue
-                first_span     = lines[0]["spans"][0] if lines[0].get("spans") else {}
-                orig_font_name: str = first_span.get("font", "")
-                skipped = not _has_translatable_text(text, orig_font_name)
-                if DEBUG_PRESCAN:
-                    status = "SKIP" if skipped else "keep"
-                    preview = repr(text[:40])
-                    print(f"[prescan] p{page.number+1} {status}  font={orig_font_name!r}  text={preview}")
-                if skipped:
-                    continue  # Skip pure emoji/icon/symbol/number blocks and icon fonts
-                fontsize      = float(first_span.get("size", 11))
-                flags: int    = int(first_span.get("flags", 0))
-                x0, y0, x1, y1 = blk["bbox"]
-                # Check if block centre falls inside a known table cell
-                cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-                is_table_cell = any(r.contains(fitz.Point(cx, cy)) for r in cell_rects)
-                blocks.append((x0, y0, x1, y1, text, fontsize, orig_font_name, flags, is_table_cell))
+                # Detect multi-column same-Y layout: two or more lines within the
+                # same block that share the same Y-band indicate side-by-side
+                # columns (e.g. "Label:   Value" stored as two positioned objects).
+                # Group lines by Y-band so they can be emitted as separate blocks.
+                y_groups: list[list[dict]] = []
+                for ln in lines:
+                    ly_mid = (ln["bbox"][1] + ln["bbox"][3]) / 2
+                    lh     = max(ln["bbox"][3] - ln["bbox"][1], 1.0)
+                    for grp in y_groups:
+                        g_mid = (grp[0]["bbox"][1] + grp[0]["bbox"][3]) / 2
+                        if abs(ly_mid - g_mid) < lh * 0.4:
+                            grp.append(ln)
+                            break
+                    else:
+                        y_groups.append([ln])
+
+                has_multicol = any(len(g) > 1 for g in y_groups)
+
+                if has_multicol:
+                    # Multi-column block: emit each line as its own block using
+                    # the line's own bbox, so translated text lands at the
+                    # correct column position rather than stacking at x0.
+                    # When filter_icons=True, single-char lines are still dropped.
+                    for grp in y_groups:
+                        for ln in grp:
+                            ln_text = "".join(sp["text"] for sp in ln.get("spans", []))
+                            if filter_icons and len(_visible_chars(ln_text)) <= 1:
+                                continue
+                            ln_text = ln_text.strip()
+                            if not ln_text:
+                                continue
+                            first_span = ln["spans"][0] if ln.get("spans") else {}
+                            orig_font_name = first_span.get("font", "")
+                            skipped = not _has_translatable_text(ln_text, orig_font_name)
+                            if DEBUG_PRESCAN:
+                                status = "SKIP" if skipped else "keep"
+                                print(f"[prescan] p{page.number+1} {status} (col)  "
+                                      f"font={orig_font_name!r}  text={repr(ln_text[:40])}")
+                            if skipped:
+                                continue
+                            fontsize = float(first_span.get("size", 11))
+                            flags    = int(first_span.get("flags", 0))
+                            lx0, ly0, lx1, ly1 = ln["bbox"]
+                            cx, cy = (lx0 + lx1) / 2, (ly0 + ly1) / 2
+                            is_table_cell = any(r.contains(fitz.Point(cx, cy)) for r in cell_rects)
+                            blocks.append((lx0, ly0, lx1, ly1, ln_text, fontsize, orig_font_name, flags, is_table_cell))
+                else:
+                    # Normal block: all lines at distinct Y positions — join with
+                    # \n and treat as a single translatable unit (existing logic).
+                    # When filter_icons=True (default), single-char lines are
+                    # dropped — icon glyphs embedded in mixed blocks are removed
+                    # so they don't reach the translation API.
+                    text_lines: list[str] = []
+                    for ln in lines:
+                        ln_text = "".join(sp["text"] for sp in ln.get("spans", []))
+                        if not filter_icons or len(_visible_chars(ln_text)) > 1:
+                            text_lines.append(ln_text)
+
+                    text = "\n".join(text_lines).strip()
+                    if not text:
+                        continue
+                    first_span     = lines[0]["spans"][0] if lines[0].get("spans") else {}
+                    orig_font_name = first_span.get("font", "")
+                    skipped = not _has_translatable_text(text, orig_font_name)
+                    if DEBUG_PRESCAN:
+                        status = "SKIP" if skipped else "keep"
+                        preview = repr(text[:40])
+                        print(f"[prescan] p{page.number+1} {status}  font={orig_font_name!r}  text={preview}")
+                    if skipped:
+                        continue
+                    fontsize      = float(first_span.get("size", 11))
+                    flags: int    = int(first_span.get("flags", 0))
+                    x0, y0, x1, y1 = blk["bbox"]
+                    # Check if block centre falls inside a known table cell
+                    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+                    is_table_cell = any(r.contains(fitz.Point(cx, cy)) for r in cell_rects)
+                    blocks.append((x0, y0, x1, y1, text, fontsize, orig_font_name, flags, is_table_cell))
             # OCR fallback: if the page yielded no translatable blocks and looks
             # scanned, run OCR to extract text from the page image.
             if not blocks and ocr_fallback:

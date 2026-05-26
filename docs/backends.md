@@ -1,16 +1,6 @@
 # 🔧 Setting up translation backends
 
-pdf-translate ships with three translation backends. **Google Translate** works out of the box — no setup needed. **Ollama** and **LibreTranslate** require a self-hosted instance but keep your documents fully private.
-
----
-
-## 🟢 Google Translate (default)
-
-No setup required. Uses the unofficial `translate.googleapis.com` endpoint — no API key, no account. Requires internet access.
-
-**Limitations:** your PDF text is sent to Google's servers. Not suitable for confidential documents. No enforced file size limit in pdf-translate, but large documents may hit undocumented Google rate limits.
-
----
+pdf-translate supports three translation backends. **LibreTranslate is bundled in `docker-compose.yml` by default** — it starts alongside pdf-translate with no extra configuration and keeps your documents fully private. **Ollama** is the alternative for LLM-quality translations. **Google Translate** works without any setup but sends your PDF text to Google's servers; use it only for quick tests or non-sensitive documents.
 
 ## 🦙 Ollama
 
@@ -51,8 +41,6 @@ In the UI, expand **Backend settings** and set:
 - **Model** → `translategemma:latest`
 
 Click **Test connection**, then **Save configuration**.
-
----
 
 ### 🐳 Option B — Docker Compose (Ollama + pdf-translate together)
 
@@ -96,8 +84,6 @@ docker exec -it <project>-ollama-1 ollama pull translategemma:latest
 
 In the UI, set **Ollama URL** to `http://ollama:11434` (Docker internal hostname).
 
----
-
 ### ⚙️ OCR with Ollama vision models
 
 When **Force OCR** is enabled, Ollama is used as a vision model to read scanned pages:
@@ -117,8 +103,6 @@ Set **OCR engine** → `Ollama (vision)` and **OCR model** → `glm-ocr` in Back
 | CPU only | 1–5 min/page |
 | Apple Silicon (M1/M2/M3) | 10–30 s/page (Metal) |
 | NVIDIA GPU | 2–10 s/page |
-
----
 
 ## 🟩 LibreTranslate
 
@@ -204,3 +188,11 @@ LibreTranslate uses [Argos Translate](https://github.com/argosopentech/argos-tra
 - **Variable:** less common pairs via pivot translation through English
 
 For best results, set **Source language** explicitly — avoid Auto-detect with LibreTranslate.
+
+## 🟢 Google Translate (testing / fallback only)
+
+No setup required. Uses the unofficial `translate.googleapis.com` endpoint — no API key, no account. Requires internet access.
+
+**Limitations:** your PDF text is sent to Google's servers. Not suitable for confidential documents. No enforced file size limit in pdf-translate, but large documents may hit undocumented Google rate limits.
+
+Use this backend for quick tests or when translating non-sensitive public documents. For anything private, use Ollama or LibreTranslate instead.
