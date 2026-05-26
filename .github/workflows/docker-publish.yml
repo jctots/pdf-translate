@@ -52,6 +52,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/jctots/pdf-translate
+          flavor: |
+            latest=auto
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
