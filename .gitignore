@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+
+# Temp output files
+*.tmp
+
+# Runtime config (written by the app; not source)
+data/
+
+# Build version (written by CI before docker build; not source)
+VERSION
+
+# OS
+.DS_Store
+Thumbs.db

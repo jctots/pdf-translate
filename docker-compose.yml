@@ -1,0 +1,20 @@
+volumes:
+  pdf_translate_data:
+
+services:
+  pdf-translate:
+    # Use the pre-built image from GitHub Container Registry (recommended):
+    image: ghcr.io/jctots/pdf-translate:latest
+    # Or build locally from source (uncomment and comment out the image line above):
+    # build: .
+    ports:
+      - "7860:7860"
+    volumes:
+      - pdf_translate_data:/app/data
+    # environment:
+      # Delay between LibreTranslate API calls (ms). Prevents 429 on self-hosted instances.
+      # Only applied when LibreTranslate backend is active. Set to 0 to disable. Default: 200
+      # - LIBRETRANSLATE_BLOCK_DELAY_MS=200
+      # Enable debug info in the status box and docker logs (1=on, 0=off). Default: off
+      # - PDF_TRANSLATE_DEBUG=1
+    restart: unless-stopped
