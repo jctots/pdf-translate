@@ -310,6 +310,48 @@ class TestHandleIdempotency:
         assert emitted[0]["action"] == "skipped"
         assert emitted[0]["reason"] == "auto-translated companion"
 
+    def test_field_lookup_failure_applies_failure_tag(self):
+        """handle() applies translation-failed tag when custom field lookup fails (step 4)."""
+        doc = _make_doc(doc_id=303)
+
+        emitted = []
+        original_emit = webhook.emit
+        webhook.emit = lambda e: emitted.append(e)
+
+        try:
+            with patch("httpx.Client") as mock_client_cls:
+                mock_client = MagicMock()
+                mock_client_cls.return_value.__enter__.return_value = mock_client
+
+                # get_document
+                doc_resp = MagicMock()
+                doc_resp.raise_for_status = MagicMock()
+                doc_resp.json.return_value = doc
+                # get_tag_id_by_name (auto-translated) → tag not present
+                tag_resp = MagicMock()
+                tag_resp.raise_for_status = MagicMock()
+                tag_resp.json.return_value = {"results": [{"id": 50, "name": TAG_AUTO_TRANSLATED}]}
+                # get_custom_field_ids → raises
+                mock_client.get.side_effect = [doc_resp, tag_resp, Exception("Paperless API error")]
+
+                # set_failure_tag calls get_or_create_tag (POST /api/tags) and then PATCH
+                failure_tag_resp = MagicMock()
+                failure_tag_resp.raise_for_status = MagicMock()
+                failure_tag_resp.json.return_value = {"results": [{"id": 99, "name": TAG_TRANSLATION_FAILED}]}
+                mock_client.get.side_effect = [doc_resp, tag_resp, Exception("Paperless API error"),
+                                               failure_tag_resp]
+                patch_resp = MagicMock()
+                patch_resp.raise_for_status = MagicMock()
+                mock_client.patch.return_value = patch_resp
+
+                with patch.object(webhook, "SOURCE_LANG", "auto"):
+                    webhook.handle(303, "Guten Tag")
+        finally:
+            webhook.emit = original_emit
+
+        assert any(e["action"] == "error" and "field lookup failed" in e["reason"] for e in emitted)
+        mock_client.patch.assert_called()
+
     def test_skips_already_translated_original(self):
         """Original document with 'translation' field set must be skipped."""
         translation_field_id = 10

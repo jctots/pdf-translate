@@ -388,6 +388,7 @@ def handle(doc_id: int, content: str | None) -> None:
         except Exception as exc:
             emit({"action": "error", "source_id": doc_id, "source_title": title,
                   "reason": f"field lookup failed: {exc}"})
+            set_failure_tag(client, doc_id, doc, failed=True)
             return
 
         logger.info(

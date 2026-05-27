@@ -69,8 +69,8 @@ OLLAMA_DEFAULT_SYSTEM_PROMPT = (
     "and cultural sensitivities.\n"
     "Produce only the {target_lang} translation, without any additional "
     "explanations or commentary. Please translate the following {source_lang} "
-    "text into {target_lang}:\n\n\n"
-    "{text}"
+    "text into {target_lang}:\n\n"
+    "<text>\n{text}\n</text>"
 )
 
 CONFIG_PATH = Path(__file__).parent / "data" / "config.json"
