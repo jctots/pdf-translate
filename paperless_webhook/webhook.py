@@ -166,14 +166,45 @@ def get_or_create_tag(client: httpx.Client, name: str) -> int:
     return tag_id
 
 
-def upload_document(client: httpx.Client, pdf_bytes: bytes, title: str, tag_id: int) -> str:
-    """Upload PDF to Paperless. Returns the task UUID."""
-    logger.info("upload: posting '%s' with tag_id=%s (%d bytes)", title, tag_id, len(pdf_bytes))
+def upload_document(
+    client: httpx.Client,
+    pdf_bytes: bytes,
+    title: str,
+    auto_tag_id: int,
+    source_doc: dict,
+    failure_tag_id: int | None = None,
+) -> str:
+    """Upload PDF to Paperless. Returns the task UUID.
+
+    Copies metadata from source_doc so the companion inherits the original's
+    correspondent, document type, storage path, creation date, and tags.
+    The 'translation-failed' tag is excluded (not relevant for companions).
+    The 'auto-translated' tag is always added.
+    """
+    # Tags: original tags minus translation-failed, plus auto-translated
+    exclude = {failure_tag_id} if failure_tag_id else set()
+    tags = [t for t in source_doc.get("tags", []) if t not in exclude]
+    if auto_tag_id not in tags:
+        tags.append(auto_tag_id)
+
+    post_data: dict = {"title": title, "tags": tags}
+
+    # Copy metadata fields from the original document
+    for field in ("correspondent", "document_type", "storage_path", "created"):
+        val = source_doc.get(field)
+        if val is not None:
+            post_data[field] = val
+
+    logger.info(
+        "upload: posting '%s' with auto_tag_id=%s (%d bytes) inherited=%s",
+        title, auto_tag_id, len(pdf_bytes),
+        {k: v for k, v in post_data.items() if k not in ("title", "tags")},
+    )
     r = client.post(
         f"{PAPERLESS_URL}/api/documents/post_document/",
         headers=PAPERLESS_HEADERS,
         files={"document": (f"{title}.pdf", pdf_bytes, "application/pdf")},
-        data={"title": title, "tags": [tag_id]},
+        data=post_data,
         timeout=30.0,
     )
     r.raise_for_status()
@@ -383,9 +414,10 @@ def handle(doc_id: int, content: str | None) -> None:
             set_failure_tag(client, doc_id, doc, failed=True)
             return
 
-        # 7. Get or create the auto-translated tag
+        # 7. Get or create the auto-translated tag; look up failure tag to exclude it from companions
         try:
             tag_id = get_or_create_tag(client, TAG_AUTO_TRANSLATED)
+            failure_tag_id = get_tag_id_by_name(client, TAG_TRANSLATION_FAILED)
         except Exception as exc:
             emit({"action": "failed", "source_id": doc_id, "source_title": title,
                   "reason": f"tag lookup failed: {exc}"})
@@ -428,7 +460,9 @@ def handle(doc_id: int, content: str | None) -> None:
                 return
 
             try:
-                task_uuid = upload_document(client, out_bytes, companion_title, tag_id)
+                task_uuid = upload_document(
+                    client, out_bytes, companion_title, tag_id, doc, failure_tag_id
+                )
             except Exception as exc:
                 emit({"action": "failed", "source_id": doc_id, "source_title": title,
                       "format": fmt, "reason": f"upload failed: {exc}"})
