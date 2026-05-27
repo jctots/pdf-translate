@@ -130,6 +130,17 @@ def get_custom_field_ids(client: httpx.Client) -> dict[str, int]:
     }
 
 
+def get_tag_id_by_name(client: httpx.Client, name: str) -> int | None:
+    try:
+        data = _pl_get(client, f"/api/tags/?name={name}")
+        results = data.get("results", [])
+        if results:
+            return results[0]["id"]
+    except Exception:
+        pass
+    return None
+
+
 def get_or_create_tag(client: httpx.Client, name: str) -> int:
     data = _pl_get(client, f"/api/tags/?name={name}")
     results = data.get("results", [])
@@ -263,7 +274,17 @@ def handle(doc_id: int, content: str | None) -> None:
         title   = doc.get("title", "Untitled")
         content = content or doc.get("content", "")  # payload content saves one API call
 
-        # 2. Language detection — skip when SOURCE_LANG is "auto"
+        # 2. Idempotency — skip if this document is itself a translated companion.
+        #    Companion documents are tagged "auto-translated" at upload time, so this
+        #    check is race-condition-free: the tag is present before Paperless OCR
+        #    completes and the Workflow fires.
+        auto_tag_id = get_tag_id_by_name(client, TAG_AUTO_TRANSLATED)
+        if auto_tag_id is not None and auto_tag_id in doc.get("tags", []):
+            emit({"action": "skipped", "source_id": doc_id, "source_title": title,
+                  "reason": "auto-translated companion"})
+            return
+
+        # 3. Language detection — skip when SOURCE_LANG is not "auto"
         if SOURCE_LANG != "auto":
             detected = detect_language(content)
             if detected is not None and detected != SOURCE_LANG:
@@ -271,7 +292,7 @@ def handle(doc_id: int, content: str | None) -> None:
                       "reason": f"lang={detected}"})
                 return
 
-        # 3. Custom field IDs
+        # 4. Custom field IDs
         try:
             field_ids = get_custom_field_ids(client)
         except Exception as exc:
@@ -279,7 +300,7 @@ def handle(doc_id: int, content: str | None) -> None:
                   "reason": f"field lookup failed: {exc}"})
             return
 
-        # 4. Idempotency guard
+        # 5. Idempotency guard — skip original if it already has a translation linked
         has_translation_field_id = field_ids.get(FIELD_HAS_TRANSLATION)
         if has_translation_field_id and any(
             f.get("field") == has_translation_field_id
@@ -289,7 +310,7 @@ def handle(doc_id: int, content: str | None) -> None:
                   "reason": "already translated"})
             return
 
-        # 5. Download original PDF
+        # 6. Download original PDF
         try:
             pdf_bytes = download_pdf(client, doc_id)
         except Exception as exc:
@@ -297,7 +318,7 @@ def handle(doc_id: int, content: str | None) -> None:
                   "reason": f"download failed: {exc}"})
             return
 
-        # 6. Get or create the auto-translated tag
+        # 7. Get or create the auto-translated tag
         try:
             tag_id = get_or_create_tag(client, TAG_AUTO_TRANSLATED)
         except Exception as exc:
@@ -305,7 +326,7 @@ def handle(doc_id: int, content: str | None) -> None:
                   "reason": f"tag lookup failed: {exc}"})
             return
 
-        # 7. Translate and upload each format
+        # 8. Translate and upload each format
         formats = ["pdf", "sbs"] if OUTPUT_FORMAT == "both" else [OUTPUT_FORMAT]
         translation_id: int | None = None
         uploaded: list[dict] = []
@@ -355,7 +376,7 @@ def handle(doc_id: int, content: str | None) -> None:
             if translation_id is None:
                 translation_id = companion_id
 
-        # 8. Bidirectional custom field links
+        # 9. Bidirectional custom field links
         errors = []
         translation_of_field_id = field_ids.get(FIELD_TRANSLATION_OF)
 

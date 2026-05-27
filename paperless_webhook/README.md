@@ -77,15 +77,30 @@ services:
     volumes:
       - <data-path>/pdf-translate-webhook:/data
     environment:
+      # Paperless connection
       PAPERLESS_URL: http://paperless-ngx:8000
       PAPERLESS_API_TOKEN: ${PAPERLESS_API_TOKEN}        # in .env (secret)
+
+      # Translation pipeline
       PDF_TRANSLATE_URL: http://<pdf-translate-host>:7860
-      LIBRETRANSLATE_URL: http://<libretranslate-host>:5000
-      TRANSLATE_SOURCE_LANG: <source-lang>               # e.g. de, fr, nl — or "auto"
+      TRANSLATE_SOURCE_LANG: de                          # ISO 639-1, e.g. de, fr, nl — or "auto"
       TRANSLATE_TARGET_LANG: en
       TRANSLATE_OUTPUT: pdf                              # pdf | sbs | both
       TRANSLATE_TIMEOUT: "300"
       TRANSLATE_LOG_FILE: /data/translate.log
+
+      # pdf-translate API settings — language detection + translation backend
+      LIBRETRANSLATE_URL: http://<libretranslate-host>:5000
+      PDF_TRANSLATE_SERVICE: LibreTranslate              # LibreTranslate | Ollama | Google
+      # PDF_TRANSLATE_LIBRE_URL: http://<libretranslate-host>:5000  # defaults to LIBRETRANSLATE_URL
+      # PDF_TRANSLATE_LIBRE_KEY: ""                      # if your LT instance requires an API key
+
+      # pdf-translate API settings — processing flags
+      PDF_TRANSLATE_MERGE_BLOCKS: "true"                 # recommended: merge fragmented text (DTP/Paperless-archived PDFs)
+      # PDF_TRANSLATE_FORCE_OCR: "false"                 # force OCR even when text layer present
+      # PDF_TRANSLATE_ALLOW_WRAP: "false"                # collapse hard line breaks before translation
+      # PDF_TRANSLATE_FILTER_ICONS: "true"               # strip single-character icon glyphs
+      # PDF_TRANSLATE_DETECT_TABLES: "true"              # shrink-to-fit for table cells
     restart: unless-stopped
     depends_on:
       - paperless-ngx
