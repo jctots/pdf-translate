@@ -80,7 +80,8 @@ PAPERLESS_HEADERS = {"Authorization": f"Token {PAPERLESS_TOKEN}"}
 
 FIELD_HAS_TRANSLATION = "has_translation"
 FIELD_TRANSLATION_OF  = "translation_of"
-TAG_AUTO_TRANSLATED   = "auto-translated"
+TAG_AUTO_TRANSLATED   = "auto-translated"    # applied to companion docs at upload time
+TAG_TRANSLATION_FAILED = "translation-failed" # applied to originals when translation fails; cleared on success
 
 # ---------------------------------------------------------------------------
 # Structured log
@@ -202,6 +203,36 @@ def patch_custom_field(
     )
     r.raise_for_status()
 
+
+def set_failure_tag(client: httpx.Client, doc_id: int, doc: dict, failed: bool) -> None:
+    """Apply or remove the 'translation-failed' tag on the original document.
+
+    Called with failed=True on any failure path so the document is visibly
+    flagged in Paperless. Called with failed=False on success to clear it
+    (handles the case where a previous run failed and this is a successful retry).
+    """
+    try:
+        tag_id = get_or_create_tag(client, TAG_TRANSLATION_FAILED)
+        current_tags: list[int] = doc.get("tags", [])
+        if failed:
+            if tag_id not in current_tags:
+                client.patch(
+                    f"{PAPERLESS_URL}/api/documents/{doc_id}/",
+                    headers=PAPERLESS_HEADERS,
+                    json={"tags": current_tags + [tag_id]},
+                    timeout=15.0,
+                ).raise_for_status()
+        else:
+            if tag_id in current_tags:
+                client.patch(
+                    f"{PAPERLESS_URL}/api/documents/{doc_id}/",
+                    headers=PAPERLESS_HEADERS,
+                    json={"tags": [t for t in current_tags if t != tag_id]},
+                    timeout=15.0,
+                ).raise_for_status()
+    except Exception as exc:
+        logger.warning("set_failure_tag(%s, failed=%s) failed: %s", doc_id, failed, exc)
+
 # ---------------------------------------------------------------------------
 # Language detection
 # ---------------------------------------------------------------------------
@@ -316,6 +347,7 @@ def handle(doc_id: int, content: str | None) -> None:
         except Exception as exc:
             emit({"action": "failed", "source_id": doc_id, "source_title": title,
                   "reason": f"download failed: {exc}"})
+            set_failure_tag(client, doc_id, doc, failed=True)
             return
 
         # 7. Get or create the auto-translated tag
@@ -324,6 +356,7 @@ def handle(doc_id: int, content: str | None) -> None:
         except Exception as exc:
             emit({"action": "failed", "source_id": doc_id, "source_title": title,
                   "reason": f"tag lookup failed: {exc}"})
+            set_failure_tag(client, doc_id, doc, failed=True)
             return
 
         # 8. Translate and upload each format
@@ -347,15 +380,18 @@ def handle(doc_id: int, content: str | None) -> None:
                     client.delete(f"{PDF_TRANSLATE_URL}/api/translate", timeout=10.0)
                 except Exception:
                     pass
+                set_failure_tag(client, doc_id, doc, failed=True)
                 return
             except httpx.HTTPStatusError as exc:
                 emit({"action": "failed", "source_id": doc_id, "source_title": title,
                       "format": fmt,
                       "reason": f"HTTP {exc.response.status_code}: {exc.response.text[:200]}"})
+                set_failure_tag(client, doc_id, doc, failed=True)
                 return
             except Exception as exc:
                 emit({"action": "failed", "source_id": doc_id, "source_title": title,
                       "format": fmt, "reason": str(exc)})
+                set_failure_tag(client, doc_id, doc, failed=True)
                 return
 
             try:
@@ -363,6 +399,7 @@ def handle(doc_id: int, content: str | None) -> None:
             except Exception as exc:
                 emit({"action": "failed", "source_id": doc_id, "source_title": title,
                       "format": fmt, "reason": f"upload failed: {exc}"})
+                set_failure_tag(client, doc_id, doc, failed=True)
                 return
 
             companion_id = poll_task(client, task_uuid)
@@ -370,6 +407,7 @@ def handle(doc_id: int, content: str | None) -> None:
                 emit({"action": "uploaded_unlinked", "source_id": doc_id,
                       "source_title": title, "format": fmt, "task_uuid": task_uuid,
                       "reason": "could not resolve companion document ID from task"})
+                set_failure_tag(client, doc_id, doc, failed=True)
                 return
 
             uploaded.append({"fmt": fmt, "id": companion_id, "title": companion_title})
@@ -402,6 +440,9 @@ def handle(doc_id: int, content: str | None) -> None:
             errors.append(
                 f"custom field '{FIELD_TRANSLATION_OF}' not found — see README.md § One-time setup"
             )
+
+        # Clear any previous failure tag — this is a successful (re)translation
+        set_failure_tag(client, doc_id, doc, failed=False)
 
         emit({
             "action": "translated",

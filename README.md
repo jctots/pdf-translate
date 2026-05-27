@@ -128,11 +128,20 @@ services:
       PAPERLESS_URL: http://paperless-ngx:8000
       PAPERLESS_API_TOKEN: ${PAPERLESS_API_TOKEN}
       PDF_TRANSLATE_URL: http://<pdf-translate-host>:7860
-      TRANSLATE_SOURCE_LANG: de   # or "auto" for all languages
+      LIBRETRANSLATE_URL: http://<libretranslate-host>:5000
+      TRANSLATE_SOURCE_LANG: de              # or "auto" for all languages
       TRANSLATE_TARGET_LANG: en
+      PDF_TRANSLATE_MERGE_BLOCKS: "true"     # recommended for Paperless-archived PDFs
 ```
 
 Then configure a Paperless Workflow (Settings → Workflows) to POST to `http://pdf-translate-webhook:8081/webhook` on document added.
+
+The webhook manages two Paperless tags automatically — no setup needed:
+
+| Tag | Meaning |
+|-----|---------|
+| `auto-translated` | Applied to companion PDFs — prevents re-translation loops |
+| `translation-failed` | Applied to originals on failure — cleared on successful retry. Filter `tag:translation-failed` to find documents needing attention. |
 
 Full setup guide: [paperless_webhook/README.md](paperless_webhook/README.md)
 

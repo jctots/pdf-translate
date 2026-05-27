@@ -149,6 +149,17 @@ These are passed as request parameters on every call to pdf-translate. They conf
 | `PDF_TRANSLATE_FILTER_ICONS` | `true` | Strip single-character icon glyphs from mixed text blocks |
 | `PDF_TRANSLATE_DETECT_TABLES` | `true` | Detect table cells and apply shrink-to-fit text fitting |
 
+## Paperless tags
+
+The webhook creates and manages two tags in Paperless automatically — no manual setup needed.
+
+| Tag | Applied to | Purpose |
+|---|---|---|
+| `auto-translated` | Companion documents (translated / SBS PDFs) | Prevents the companion from being re-translated. Applied at upload time so it is present before Paperless OCR completes and the Workflow fires — race-condition-free. |
+| `translation-failed` | Original documents | Signals that translation failed. Cleared automatically on a successful retry. Filter `tag:translation-failed` in Paperless to find documents that need attention. |
+
+To retry a failed document: open it in Paperless → **Actions → Run Workflow**. On success the `translation-failed` tag is removed and the companion appears linked via `has_translation`.
+
 ## Output format
 
 `TRANSLATE_OUTPUT` controls what is uploaded to Paperless alongside the original:
@@ -170,8 +181,11 @@ One JSON line per document, appended to `TRANSLATE_LOG_FILE`.
 // Skipped — not the configured source language
 {"action": "skipped", "source_id": 143, "source_title": "Document title", "reason": "lang=en", "ts": "..."}
 
-// Skipped — already translated (idempotency guard)
+// Skipped — already translated (idempotency guard on original)
 {"action": "skipped", "source_id": 142, "source_title": "Document title", "reason": "already translated", "ts": "..."}
+
+// Skipped — companion document (prevents infinite loop on sbs/both output)
+{"action": "skipped", "source_id": 201, "source_title": "[EN] Document title", "reason": "auto-translated companion", "ts": "..."}
 
 // Timed out
 {"action": "timeout", "source_id": 144, "source_title": "Document title", "reason": "exceeded 300s", "ts": "..."}

@@ -228,27 +228,29 @@ Branch on `error_type` in automation scripts. The possible values and their mean
 | `no_text` | No translatable text found (returned as 422) | Enable `force_ocr=true`, then retry |
 | `cancelled` | Job cancelled via `DELETE /api/translate` (returned as 409) | Retry if desired |
 
-### Decision tree for automation
+### Decision tree for custom integrations
+
+> **Note:** The [Paperless-ngx webhook container](../paperless_webhook/README.md) does not implement retries — it logs failures and tags the original document `translation-failed` in Paperless. The tree below is a reference for clients building their own automation directly on the REST API.
+>
+> The REST API is stateless — `PATCH /api/config` only affects the Gradio UI. All settings must be passed as request parameters on each call.
 
 ```
 POST /api/translate
 ├── 200 → done ✓
-├── 422 → PATCH force_ocr=true → retry once
-│           still 422 → skip document (no text at all)
+├── 422 → retry with force_ocr=true
+│           still 422 → skip (no translatable text)
 ├── 429 (queue full) → sleep Retry-After → retry
 ├── 500 + "GGML_ASSERT"
-│       → PATCH ocr_ollama_model=deepseek-ocr → retry once
-│           still 500 → fall back to Tesseract: PATCH ocr_service=Tesseract → retry once
+│       → retry with ocr_ollama_model=deepseek-ocr
+│           still 500 → retry with ocr_service=Tesseract
 │               still 500 → alert + skip
 ├── 500 + "CUDA OOM"
-│       → PATCH ocr_ollama_model=glm-ocr → retry once
-│           still 500 → PATCH ocr_service=Tesseract → retry once
+│       → retry with ocr_ollama_model=glm-ocr
+│           still 500 → retry with ocr_service=Tesseract
 ├── 500 + "429 TOO MANY REQUESTS"
 │       → sleep 60 s → retry
 └── 500 (other) → alert + skip
 ```
-
-`PATCH /api/config` changes persist to `config.json` immediately — subsequent translation calls use the new values.
 
 ## 📄 Paperless-ngx integration
 
