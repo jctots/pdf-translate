@@ -146,7 +146,9 @@ def get_or_create_tag(client: httpx.Client, name: str) -> int:
     data = _pl_get(client, f"/api/tags/?name={name}")
     results = data.get("results", [])
     if results:
-        return results[0]["id"]
+        tag_id = results[0]["id"]
+        logger.info("tag: found '%s' id=%s", name, tag_id)
+        return tag_id
     r = client.post(
         f"{PAPERLESS_URL}/api/tags/",
         headers=PAPERLESS_HEADERS,
@@ -154,11 +156,14 @@ def get_or_create_tag(client: httpx.Client, name: str) -> int:
         timeout=15.0,
     )
     r.raise_for_status()
-    return r.json()["id"]
+    tag_id = r.json()["id"]
+    logger.info("tag: created '%s' id=%s", name, tag_id)
+    return tag_id
 
 
 def upload_document(client: httpx.Client, pdf_bytes: bytes, title: str, tag_id: int) -> str:
     """Upload PDF to Paperless. Returns the task UUID."""
+    logger.info("upload: posting '%s' with tag_id=%s (%d bytes)", title, tag_id, len(pdf_bytes))
     r = client.post(
         f"{PAPERLESS_URL}/api/documents/post_document/",
         headers=PAPERLESS_HEADERS,
@@ -167,7 +172,9 @@ def upload_document(client: httpx.Client, pdf_bytes: bytes, title: str, tag_id: 
         timeout=30.0,
     )
     r.raise_for_status()
-    return r.text.strip().strip('"')
+    task_uuid = r.text.strip().strip('"')
+    logger.info("upload: task_uuid=%s", task_uuid)
+    return task_uuid
 
 
 def poll_task(client: httpx.Client, task_uuid: str, max_wait: int = 120) -> int | None:
@@ -191,16 +198,24 @@ def poll_task(client: httpx.Client, task_uuid: str, max_wait: int = 120) -> int 
 
 
 def patch_custom_field(
-    client: httpx.Client, doc_id: int, field_id: int, value: int, existing: list
+    client: httpx.Client, doc_id: int, field_id: int, value, existing: list
 ) -> None:
+    """Patch a single custom field on a document.
+
+    `value` is passed as-is — callers are responsible for the correct type:
+    - Integer/text fields: pass the scalar value
+    - Document Link fields: pass a list of document IDs, e.g. [doc_id]
+    """
     fields = [f for f in existing if f.get("field") != field_id]
     fields.append({"field": field_id, "value": value})
+    logger.info("patch_custom_field: doc_id=%s field_id=%s value=%s payload=%s", doc_id, field_id, value, fields)
     r = client.patch(
         f"{PAPERLESS_URL}/api/documents/{doc_id}/",
         headers=PAPERLESS_HEADERS,
         json={"custom_fields": fields},
         timeout=15.0,
     )
+    logger.info("patch_custom_field: response status=%s body=%s", r.status_code, r.text[:300])
     r.raise_for_status()
 
 
@@ -310,6 +325,10 @@ def handle(doc_id: int, content: str | None) -> None:
         #    check is race-condition-free: the tag is present before Paperless OCR
         #    completes and the Workflow fires.
         auto_tag_id = get_tag_id_by_name(client, TAG_AUTO_TRANSLATED)
+        logger.info(
+            "guard: doc_id=%s tags=%s auto_tag_id=%s",
+            doc_id, doc.get("tags", []), auto_tag_id,
+        )
         if auto_tag_id is not None and auto_tag_id in doc.get("tags", []):
             emit({"action": "skipped", "source_id": doc_id, "source_title": title,
                   "reason": "auto-translated companion"})
@@ -422,7 +441,8 @@ def handle(doc_id: int, content: str | None) -> None:
             try:
                 patch_custom_field(
                     client, doc_id, has_translation_field_id,
-                    translation_id, doc.get("custom_fields", [])
+                    [translation_id],           # Document Link expects a list of IDs
+                    doc.get("custom_fields", [])
                 )
             except Exception as exc:
                 errors.append(f"patch source: {exc}")
@@ -433,7 +453,11 @@ def handle(doc_id: int, content: str | None) -> None:
 
         if translation_of_field_id and translation_id:
             try:
-                patch_custom_field(client, translation_id, translation_of_field_id, doc_id, [])
+                patch_custom_field(
+                    client, translation_id, translation_of_field_id,
+                    [doc_id],                   # Document Link expects a list of IDs
+                    []
+                )
             except Exception as exc:
                 errors.append(f"patch translation: {exc}")
         elif not translation_of_field_id:
