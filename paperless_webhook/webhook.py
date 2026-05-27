@@ -134,9 +134,10 @@ def get_custom_field_ids(client: httpx.Client) -> dict[str, int]:
 def get_tag_id_by_name(client: httpx.Client, name: str) -> int | None:
     try:
         data = _pl_get(client, f"/api/tags/?name={name}")
-        results = data.get("results", [])
-        if results:
-            return results[0]["id"]
+        # Exact-match filter — Paperless may use icontains so verify name
+        exact = [r for r in data.get("results", []) if r["name"] == name]
+        if exact:
+            return exact[0]["id"]
     except Exception:
         pass
     return None
@@ -144,9 +145,14 @@ def get_tag_id_by_name(client: httpx.Client, name: str) -> int | None:
 
 def get_or_create_tag(client: httpx.Client, name: str) -> int:
     data = _pl_get(client, f"/api/tags/?name={name}")
-    results = data.get("results", [])
-    if results:
-        tag_id = results[0]["id"]
+    # Paperless name filter uses icontains — verify exact match to avoid
+    # a partial-match collision (e.g. 'translation-failed' matching 'auto-translated')
+    all_results = data.get("results", [])
+    if all_results:
+        logger.info("tag lookup '%s': API returned %s", name, [(r["id"], r["name"]) for r in all_results])
+    exact = [r for r in all_results if r["name"] == name]
+    if exact:
+        tag_id = exact[0]["id"]
         logger.info("tag: found '%s' id=%s", name, tag_id)
         return tag_id
     r = client.post(
@@ -215,7 +221,11 @@ def patch_custom_field(
         json={"custom_fields": fields},
         timeout=15.0,
     )
-    logger.info("patch_custom_field: response status=%s body=%s", r.status_code, r.text[:300])
+    try:
+        stored = r.json().get("custom_fields", "N/A")
+    except Exception:
+        stored = r.text[:200]
+    logger.info("patch_custom_field: doc_id=%s response status=%s stored_custom_fields=%s", doc_id, r.status_code, stored)
     r.raise_for_status()
 
 
@@ -349,6 +359,11 @@ def handle(doc_id: int, content: str | None) -> None:
             emit({"action": "error", "source_id": doc_id, "source_title": title,
                   "reason": f"field lookup failed: {exc}"})
             return
+
+        logger.info(
+            "custom_fields: resolved field_ids=%s doc_custom_fields=%s",
+            field_ids, doc.get("custom_fields", [])
+        )
 
         # 5. Idempotency guard — skip original if it already has a translation linked
         has_translation_field_id = field_ids.get(FIELD_HAS_TRANSLATION)
