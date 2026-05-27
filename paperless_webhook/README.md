@@ -159,6 +159,66 @@ The webhook creates and manages two tags in Paperless automatically — no manua
 
 To retry a failed document: open it in Paperless → **Actions → Run Workflow**. On success the `translation-failed` tag is removed and the companion appears linked via `translation`.
 
+## Backfill — translating existing documents
+
+The webhook only processes new documents as they arrive. To translate documents already in Paperless, use `backfill.py` — included in the same Docker image.
+
+It applies the same guards as the webhook: skips companions tagged `auto-translated`, skips originals that already have a `translation` link, and skips documents in the wrong language. Any translations it performs write to the same `TRANSLATE_LOG_FILE` and apply the same `translation-failed` tag on failure.
+
+### Run
+
+Exec into the running webhook container — it already has all the right env vars:
+
+```bash
+# Preview first — no changes:
+docker exec -it pdf-translate-webhook \
+  python backfill.py --start 1 --end 20 --dry-run
+
+# Translate after reviewing the dry-run output:
+docker exec -it pdf-translate-webhook \
+  python backfill.py --start 1 --end 20
+```
+
+Replace `pdf-translate-webhook` with your container name if different.
+
+### Output
+
+The script prints progress to the terminal as it runs:
+
+```
+pdf-translate backfill — IDs 1–20 (20 to check)
+
+  · [     3] skip: lang=en (want de)
+  · [     7] skip: already translated
+  → [    12] "Mietvertrag 2024"
+  → [    15] "Arztbrief Dr. Müller"
+
+Scan complete: 2 to translate, 2 skipped, 16 not found, 0 errors
+
+[1/2] doc 12: 'Mietvertrag 2024' ... ✓  → [EN] Mietvertrag 2024
+[2/2] doc 15: 'Arztbrief Dr. Müller' ... ✓  → [EN] Arztbrief Dr. Müller
+
+Done. translated=2 skipped=2 errors=0
+```
+
+Failures appear as `✗ failed: <reason>` in the terminal and as `"action": "failed"` entries in `TRANSLATE_LOG_FILE`.
+
+### Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--start N` | — | First document ID to check (required) |
+| `--end N` | — | Last document ID to check, inclusive (required) |
+| `--dry-run` | off | Scan and report eligibility without translating |
+| `--delay SECONDS` | `2.0` | Pause between translations — reduce to speed up, increase if pdf-translate is slow |
+
+### Tips
+
+- **Start small.** Run `--dry-run --start 1 --end 50` first to see what qualifies before committing.
+- **Work in batches.** Paperless IDs are not contiguous — there will be many "not found" gaps. Running 1–800 with `--dry-run` first tells you exactly how many documents will actually be translated.
+- **Check the log after.** `grep '"action": "failed"' /data/translate.log` shows anything that didn't make it through.
+- **Safe to re-run.** Already-translated documents are always skipped — running twice does nothing extra.
+
 ## Output format
 
 `TRANSLATE_OUTPUT` controls what is uploaded to Paperless alongside the original:
