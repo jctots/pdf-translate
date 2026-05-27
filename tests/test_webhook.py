@@ -30,6 +30,7 @@ os.environ.setdefault("PDF_TRANSLATE_URL",    "http://pdft:7860")
 
 import webhook  # noqa: E402  (must come after sys.path + env setup)
 from webhook import (  # noqa: E402
+    FIELD_TRANSLATION,
     TAG_AUTO_TRANSLATED,
     TAG_TRANSLATION_FAILED,
     _bool_env,
@@ -310,11 +311,11 @@ class TestHandleIdempotency:
         assert emitted[0]["reason"] == "auto-translated companion"
 
     def test_skips_already_translated_original(self):
-        """Original document with has_translation field set must be skipped."""
-        has_translation_field_id = 10
+        """Original document with 'translation' field set must be skipped."""
+        translation_field_id = 10
         doc = _make_doc(
             doc_id=142,
-            custom_fields=[{"field": has_translation_field_id, "value": 201}],
+            custom_fields=[{"field": translation_field_id, "value": [201]}],
         )
 
         emitted = []
@@ -340,8 +341,7 @@ class TestHandleIdempotency:
                 fields_resp.raise_for_status = MagicMock()
                 fields_resp.json.return_value = {
                     "results": [
-                        {"id": has_translation_field_id, "name": "has_translation"},
-                        {"id": 11, "name": "translation_of"},
+                        {"id": translation_field_id, "name": "translation"},
                     ]
                 }
 

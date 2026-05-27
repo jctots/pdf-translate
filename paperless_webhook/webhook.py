@@ -78,9 +78,8 @@ API_DETECT_TABLES = _bool_env("PDF_TRANSLATE_DETECT_TABLES", True)
 
 PAPERLESS_HEADERS = {"Authorization": f"Token {PAPERLESS_TOKEN}"}
 
-FIELD_HAS_TRANSLATION = "has_translation"
-FIELD_TRANSLATION_OF  = "translation_of"
-TAG_AUTO_TRANSLATED   = "auto-translated"    # applied to companion docs at upload time
+FIELD_TRANSLATION      = "translation"        # Document Link — points each doc to its translation counterpart
+TAG_AUTO_TRANSLATED    = "auto-translated"    # applied to companion docs at upload time
 TAG_TRANSLATION_FAILED = "translation-failed" # applied to originals when translation fails; cleared on success
 
 # ---------------------------------------------------------------------------
@@ -127,7 +126,7 @@ def get_custom_field_ids(client: httpx.Client) -> dict[str, int]:
     return {
         f["name"]: f["id"]
         for f in data.get("results", [])
-        if f["name"] in (FIELD_HAS_TRANSLATION, FIELD_TRANSLATION_OF)
+        if f["name"] == FIELD_TRANSLATION
     }
 
 
@@ -366,9 +365,9 @@ def handle(doc_id: int, content: str | None) -> None:
         )
 
         # 5. Idempotency guard — skip original if it already has a translation linked
-        has_translation_field_id = field_ids.get(FIELD_HAS_TRANSLATION)
-        if has_translation_field_id and any(
-            f.get("field") == has_translation_field_id
+        translation_field_id = field_ids.get(FIELD_TRANSLATION)
+        if translation_field_id and any(
+            f.get("field") == translation_field_id
             for f in doc.get("custom_fields", [])
         ):
             emit({"action": "skipped", "source_id": doc_id, "source_title": title,
@@ -448,36 +447,26 @@ def handle(doc_id: int, content: str | None) -> None:
             if translation_id is None:
                 translation_id = companion_id
 
-        # 9. Bidirectional custom field links
+        # 9. Link companion to original via the shared "translation" custom field.
+        #
+        # Paperless Document Link fields create automatic bidirectional reverse
+        # links: setting translation=[doc_id] on the companion causes Paperless
+        # to automatically set translation=[companion_id] on the original as well.
+        # We therefore only need one patch on the companion.
         errors = []
-        translation_of_field_id = field_ids.get(FIELD_TRANSLATION_OF)
 
-        if has_translation_field_id and translation_id:
+        if translation_field_id and translation_id:
             try:
                 patch_custom_field(
-                    client, doc_id, has_translation_field_id,
-                    [translation_id],           # Document Link expects a list of IDs
-                    doc.get("custom_fields", [])
-                )
-            except Exception as exc:
-                errors.append(f"patch source: {exc}")
-        elif not has_translation_field_id:
-            errors.append(
-                f"custom field '{FIELD_HAS_TRANSLATION}' not found — see README.md § One-time setup"
-            )
-
-        if translation_of_field_id and translation_id:
-            try:
-                patch_custom_field(
-                    client, translation_id, translation_of_field_id,
-                    [doc_id],                   # Document Link expects a list of IDs
+                    client, translation_id, translation_field_id,
+                    [doc_id],   # Document Link expects a list of IDs
                     []
                 )
             except Exception as exc:
                 errors.append(f"patch translation: {exc}")
-        elif not translation_of_field_id:
+        elif not translation_field_id:
             errors.append(
-                f"custom field '{FIELD_TRANSLATION_OF}' not found — see README.md § One-time setup"
+                f"custom field '{FIELD_TRANSLATION}' not found — see README.md § One-time setup"
             )
 
         # Clear any previous failure tag — this is a successful (re)translation

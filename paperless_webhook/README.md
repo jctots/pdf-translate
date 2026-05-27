@@ -30,18 +30,17 @@ The webhook responds 200 immediately — translation runs in the background and 
 
 ## One-time setup in Paperless
 
-### 1. Create custom fields
+### 1. Create the custom field
 
-Go to **Settings → Custom Fields** and create two fields:
+Go to **Settings → Custom Fields** and create one field:
 
 | Name | Data type |
 |---|---|
-| `has_translation` | Document Link |
-| `translation_of` | Document Link |
+| `translation` | Document Link |
 
-**Document Link** fields render as clickable links in the Paperless UI — click `has_translation` on the original to jump to its translation, and `translation_of` on the translation to return to the original.
+**Document Link** fields render as clickable links in the Paperless UI. Paperless automatically creates the reverse link — when the companion gets `translation=[original]`, the original is automatically updated with `translation=[companion]`. One field, both directions.
 
-The webhook logs a warning if these fields are missing but still uploads the translation — the document just won't be linked.
+The webhook logs a warning if this field is missing but still uploads the translation — the document just won't be linked.
 
 ### 2. Generate a Paperless API token
 
@@ -158,7 +157,7 @@ The webhook creates and manages two tags in Paperless automatically — no manua
 | `auto-translated` | Companion documents (translated / SBS PDFs) | Prevents the companion from being re-translated. Applied at upload time so it is present before Paperless OCR completes and the Workflow fires — race-condition-free. |
 | `translation-failed` | Original documents | Signals that translation failed. Cleared automatically on a successful retry. Filter `tag:translation-failed` in Paperless to find documents that need attention. |
 
-To retry a failed document: open it in Paperless → **Actions → Run Workflow**. On success the `translation-failed` tag is removed and the companion appears linked via `has_translation`.
+To retry a failed document: open it in Paperless → **Actions → Run Workflow**. On success the `translation-failed` tag is removed and the companion appears linked via `translation`.
 
 ## Output format
 
@@ -205,8 +204,8 @@ To review failures: `grep '"action": "failed"\|"action": "timeout"' /data/transl
 **Translation triggered for documents in the wrong language**
 Language detection failed (LibreTranslate unreachable) or `TRANSLATE_SOURCE_LANG=auto`. Check `LIBRETRANSLATE_URL` and that the service is running.
 
-**Custom fields not set after translation**
-The `has_translation` / `translation_of` fields were not found in Paperless. Complete the one-time setup above. To link an already-translated document manually: set the custom fields in the Paperless UI using the IDs from the log (`source_id` and `translation_id`).
+**Custom field not set after translation**
+The `translation` field was not found in Paperless. Complete the one-time setup above. To link an already-translated document manually: set `translation` in the Paperless UI on the companion using the original's `source_id` from the log.
 
 **Webhook not firing**
 Verify the Paperless Workflow configuration. The webhook URL must be reachable from inside the Paperless container — use the Docker service name (`http://pdf-translate-webhook:8081/webhook`), not `localhost`.
