@@ -27,6 +27,7 @@ from backends import test_libre_connection, test_ollama_connection, translate, t
 from exceptions import BackendConnectionError, OcrModelError, OcrOomError, RateLimitError
 from config import (
     CONFIG_PATH,
+    DEFAULT_BACKEND,
     OCR_DEFAULT_SERVICE,
     OCR_LLM_DEFAULT_MODEL,
     OCR_LLM_DEFAULT_PROMPT,
@@ -513,7 +514,6 @@ async def api_health():
     `job.last` contains the outcome of the most recent job (persists until the
     next job starts) — use this to check what happened after a client timeout.
     """
-    cfg = load_config()
     if _job.running:
         job_info: dict = {
             "running": True,
@@ -537,7 +537,7 @@ async def api_health():
             if _job.last_error:
                 last["error"] = _job.last_error
         job_info = {"running": False, "last": last}
-    return {"status": "ok", "version": _VERSION, "backend": cfg["backend"], "job": job_info}
+    return {"status": "ok", "version": _VERSION, "backend": DEFAULT_BACKEND, "job": job_info}
 
 
 @api_app.get("/api/config", summary="Read configuration", tags=["Configuration"])
@@ -576,14 +576,18 @@ def _classify_error(msg: str, exc: BaseException | None = None) -> str:
     return "translation_error"
 
 
-@api_app.patch("/api/config", summary="Update configuration", tags=["Configuration"])
+@api_app.patch("/api/config", summary="Update UI configuration", tags=["Configuration"])
 async def api_config_patch(update: ConfigUpdate):
     """
-    Partially update the backend configuration.
+    Partially update the Gradio UI configuration (config.json).
 
     Only supplied (non-null) fields are changed; omitted fields keep their
-    current values. Changes are persisted to config.json and take effect
-    immediately — no restart required.
+    current values. Changes are persisted to config.json and reflected in the
+    UI immediately — no restart required.
+
+    **Note:** this endpoint only affects the Gradio UI. REST API translation
+    calls (`POST /api/translate`) are configured via request parameters and
+    env vars, not config.json.
     """
     updates = {k: v for k, v in update.model_dump().items() if v is not None}
     if not updates:
@@ -618,7 +622,27 @@ async def api_translate(
     target: str = Form("en", description="Target language code: 'en', 'nl', 'de', 'fr', …"),
     service: Optional[str] = Form(
         None,
-        description="Backend: Ollama, LibreTranslate, or Google. Defaults to saved config.",
+        description=f"Backend: Ollama, LibreTranslate, or Google. Defaults to PDF_TRANSLATE_BACKEND env var (currently: {DEFAULT_BACKEND!r}).",
+    ),
+    libre_url: Optional[str] = Form(
+        None,
+        description="LibreTranslate base URL. Defaults to LIBRETRANSLATE_URL env var or http://localhost:5000.",
+    ),
+    libre_key: Optional[str] = Form(
+        None,
+        description="LibreTranslate API key (optional).",
+    ),
+    ollama_url: Optional[str] = Form(
+        None,
+        description="Ollama base URL. Defaults to http://localhost:11434.",
+    ),
+    ollama_model: Optional[str] = Form(
+        None,
+        description="Ollama translation model name.",
+    ),
+    ollama_key: Optional[str] = Form(
+        None,
+        description="Ollama API key (optional).",
     ),
     allow_wrap: bool = Form(
         False,
@@ -678,8 +702,7 @@ async def api_translate(
     Check `GET /api/health` after a timeout to see what happened to the job.
     Response headers always include `X-Source-Lang`, `X-Target-Lang`, `X-Backend`.
     """
-    cfg = load_config()
-    backend = service or cfg["backend"]
+    backend = service or DEFAULT_BACKEND
 
     # Stream upload to a temp file; enforce size limit to avoid OOM on large files
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -737,6 +760,11 @@ async def api_translate(
                 translated_path, sbs_path, reading_path = await asyncio.to_thread(
                     translate_sync,
                     tmp_pdf, source, target, backend,
+                    libre_url=libre_url,
+                    libre_key=libre_key,
+                    ollama_url=ollama_url,
+                    ollama_model=ollama_model,
+                    ollama_key=ollama_key,
                     allow_wrap=allow_wrap,
                     filter_icons=filter_icons,
                     cancel_event=_job.cancel_event,

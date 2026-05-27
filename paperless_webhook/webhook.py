@@ -49,6 +49,33 @@ OUTPUT_FORMAT = os.environ.get("TRANSLATE_OUTPUT",      "pdf")   # pdf | sbs | b
 TIMEOUT       = float(os.environ.get("TRANSLATE_TIMEOUT",  "300"))
 LOG_FILE      = os.environ.get("TRANSLATE_LOG_FILE",  "/data/translate.log")
 
+# ---------------------------------------------------------------------------
+# pdf-translate API settings — passed as request parameters on every call.
+# These configure how pdf-translate processes and translates the PDF.
+# pdf-translate never reads config.json for API calls; all settings come from
+# the request. Set these env vars on the webhook container to tune behavior.
+# ---------------------------------------------------------------------------
+
+API_SERVICE      = os.environ.get("PDF_TRANSLATE_SERVICE",       "LibreTranslate")
+# URL passed to pdf-translate for translation calls (may differ from
+# LIBRETRANSLATE_URL if the LT instance is on a different network path from
+# the pdf-translate container). Defaults to LIBRETRANSLATE_URL.
+API_LIBRE_URL    = os.environ.get("PDF_TRANSLATE_LIBRE_URL",     LIBRETRANSLATE_URL)
+API_LIBRE_KEY    = os.environ.get("PDF_TRANSLATE_LIBRE_KEY",     "")
+API_OLLAMA_URL   = os.environ.get("PDF_TRANSLATE_OLLAMA_URL",    "http://localhost:11434")
+API_OLLAMA_MODEL = os.environ.get("PDF_TRANSLATE_OLLAMA_MODEL",  "")
+API_OLLAMA_KEY   = os.environ.get("PDF_TRANSLATE_OLLAMA_KEY",    "")
+
+def _bool_env(name: str, default: bool) -> bool:
+    v = os.environ.get(name, "")
+    return default if v == "" else v.lower() in ("1", "true", "yes")
+
+API_MERGE_BLOCKS  = _bool_env("PDF_TRANSLATE_MERGE_BLOCKS",  False)
+API_FORCE_OCR     = _bool_env("PDF_TRANSLATE_FORCE_OCR",     False)
+API_ALLOW_WRAP    = _bool_env("PDF_TRANSLATE_ALLOW_WRAP",    False)
+API_FILTER_ICONS  = _bool_env("PDF_TRANSLATE_FILTER_ICONS",  True)
+API_DETECT_TABLES = _bool_env("PDF_TRANSLATE_DETECT_TABLES", True)
+
 PAPERLESS_HEADERS = {"Authorization": f"Token {PAPERLESS_TOKEN}"}
 
 FIELD_HAS_TRANSLATION = "has_translation"
@@ -191,10 +218,29 @@ def detect_language(text: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def translate_pdf(pdf_bytes: bytes, fmt: str, filename: str) -> bytes:
+    data: dict = {
+        "source":        SOURCE_LANG,
+        "target":        TARGET_LANG,
+        "outputs":       fmt,
+        "service":       API_SERVICE,
+        "libre_url":     API_LIBRE_URL,
+        "ollama_url":    API_OLLAMA_URL,
+        "merge_blocks":  str(API_MERGE_BLOCKS).lower(),
+        "force_ocr":     str(API_FORCE_OCR).lower(),
+        "allow_wrap":    str(API_ALLOW_WRAP).lower(),
+        "filter_icons":  str(API_FILTER_ICONS).lower(),
+        "detect_tables": str(API_DETECT_TABLES).lower(),
+    }
+    if API_LIBRE_KEY:
+        data["libre_key"] = API_LIBRE_KEY
+    if API_OLLAMA_MODEL:
+        data["ollama_model"] = API_OLLAMA_MODEL
+    if API_OLLAMA_KEY:
+        data["ollama_key"] = API_OLLAMA_KEY
     r = httpx.post(
         f"{PDF_TRANSLATE_URL}/api/translate",
         files={"file": (filename, pdf_bytes, "application/pdf")},
-        data={"source": SOURCE_LANG, "target": TARGET_LANG, "outputs": fmt},
+        data=data,
         timeout=TIMEOUT,
     )
     r.raise_for_status()

@@ -97,17 +97,42 @@ docker compose up -d
 
 ## Environment variables
 
+### Paperless connection
+
 | Variable | Default | Description |
 |---|---|---|
 | `PAPERLESS_URL` | `http://paperless-ngx:8000` | Paperless base URL — use the Docker service name when on the same compose network |
 | `PAPERLESS_API_TOKEN` | — | Paperless API token — keep in `.env` (secret) |
+
+### Translation pipeline
+
+| Variable | Default | Description |
+|---|---|---|
 | `PDF_TRANSLATE_URL` | `http://localhost:7860` | pdf-translate base URL |
-| `LIBRETRANSLATE_URL` | `http://localhost:5000` | LibreTranslate base URL — used for language detection |
 | `TRANSLATE_SOURCE_LANG` | `auto` | Source language (ISO 639-1, e.g. `de`, `fr`, `nl`). Use `auto` to translate every document regardless of detected language. |
 | `TRANSLATE_TARGET_LANG` | `en` | Target language (ISO 639-1) |
 | `TRANSLATE_OUTPUT` | `pdf` | What to upload: `pdf` (translated PDF), `sbs` (side-by-side bilingual PDF), or `both` (one of each — two companions per original) |
 | `TRANSLATE_TIMEOUT` | `300` | Seconds to wait for pdf-translate. The orphaned job is cancelled automatically on timeout. |
 | `TRANSLATE_LOG_FILE` | `/data/translate.log` | Append-only JSON log. Mount `/data` to persist it on the host. |
+
+### pdf-translate API settings
+
+These are passed as request parameters on every call to pdf-translate. They configure how pdf-translate processes and translates the PDF. The pdf-translate REST API never reads its own `config.json` — all settings must come from the caller.
+
+| Variable | Default | Description |
+|---|---|---|
+| `LIBRETRANSLATE_URL` | `http://localhost:5000` | LibreTranslate base URL — used for **language detection** by this container |
+| `PDF_TRANSLATE_SERVICE` | `LibreTranslate` | Translation backend passed to pdf-translate: `LibreTranslate`, `Ollama`, or `Google` |
+| `PDF_TRANSLATE_LIBRE_URL` | *(= `LIBRETRANSLATE_URL`)* | LibreTranslate URL passed to pdf-translate for **translation**. Defaults to `LIBRETRANSLATE_URL`. Set separately if pdf-translate reaches LT via a different network path. |
+| `PDF_TRANSLATE_LIBRE_KEY` | *(empty)* | LibreTranslate API key (if your instance requires one) |
+| `PDF_TRANSLATE_OLLAMA_URL` | `http://localhost:11434` | Ollama base URL (only relevant when `PDF_TRANSLATE_SERVICE=Ollama`) |
+| `PDF_TRANSLATE_OLLAMA_MODEL` | *(pdf-translate default)* | Ollama translation model name |
+| `PDF_TRANSLATE_OLLAMA_KEY` | *(empty)* | Ollama API key (optional) |
+| `PDF_TRANSLATE_MERGE_BLOCKS` | `false` | Merge split word-level text fragments before translation. **Enable for DTP/InDesign PDFs** or Paperless-archived PDFs with fragmented text. |
+| `PDF_TRANSLATE_FORCE_OCR` | `false` | Ignore the text layer and OCR every page. Use for scanned PDFs with no text layer. |
+| `PDF_TRANSLATE_ALLOW_WRAP` | `false` | Collapse line breaks before translation (helps with hard-wrapped paragraphs) |
+| `PDF_TRANSLATE_FILTER_ICONS` | `true` | Strip single-character icon glyphs from mixed text blocks |
+| `PDF_TRANSLATE_DETECT_TABLES` | `true` | Detect table cells and apply shrink-to-fit text fitting |
 
 ## Output format
 
