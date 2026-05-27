@@ -24,7 +24,16 @@ import gradio as gr
 
 import pipeline as _pipeline
 from backends import google, libretranslate, ollama
-from config import load_config
+from config import (
+    load_config,
+    LIBRE_DEFAULT_URL,
+    OLLAMA_DEFAULT_URL,
+    OLLAMA_DEFAULT_MODEL,
+    OLLAMA_DEFAULT_SYSTEM_PROMPT,
+    OCR_DEFAULT_SERVICE,
+    OCR_LLM_DEFAULT_MODEL,
+    OCR_LLM_DEFAULT_PROMPT,
+)
 
 # Re-export test functions under the names app.py expects
 test_ollama_connection = ollama.test_connection
@@ -107,7 +116,8 @@ def translate_sync(
     """
     Synchronous (non-generator) translation for the REST API.
 
-    Backend-specific params default to config.json values when not supplied.
+    All params default to module-level constants when not supplied.
+    config.json is never read — it is UI-only.
     If cancel_event is set mid-translation, raises InterruptedError after the
     current block's backend call completes (best-effort cancellation).
     Returns (translated_pdf_path, sbs_pdf_path, html_path).
@@ -115,25 +125,23 @@ def translate_sync(
     """
     import pipeline as _pipeline
 
-    cfg = load_config()
-
-    # OCR settings — fall back to config values
-    _ocr_service = ocr_service or cfg.get("ocr_service", "Tesseract")
-    _ocr_url     = ollama_url or cfg["ollama_url"]
-    _ocr_model   = ocr_ollama_model or cfg.get("ocr_ollama_model", "glm-ocr")
-    _ocr_prompt  = ocr_ollama_prompt or cfg.get("ocr_ollama_prompt", "")
+    # OCR settings — fall back to module constants
+    _ocr_service = ocr_service or OCR_DEFAULT_SERVICE
+    _ocr_url     = ollama_url or OLLAMA_DEFAULT_URL
+    _ocr_model   = ocr_ollama_model or OCR_LLM_DEFAULT_MODEL
+    _ocr_prompt  = ocr_ollama_prompt or OCR_LLM_DEFAULT_PROMPT
     ocr_cfg      = {"url": _ocr_url, "model": _ocr_model, "prompt": _ocr_prompt}
 
     if service == "LibreTranslate":
-        url = libre_url or cfg["libre_url"]
-        key = libre_key if libre_key is not None else cfg["libre_key"]
+        url = libre_url or LIBRE_DEFAULT_URL
+        key = libre_key or ""
         def call_fn(text: str, src: str, tgt: str) -> str:
             return libretranslate.call(text, src, tgt, url, key)
     elif service == "Ollama":
-        url    = ollama_url    or cfg["ollama_url"]
-        model  = ollama_model  or cfg["ollama_model"]
-        prompt = ollama_system_prompt or cfg["ollama_system_prompt"]
-        key    = ollama_key if ollama_key is not None else cfg["ollama_key"]
+        url    = ollama_url    or OLLAMA_DEFAULT_URL
+        model  = ollama_model  or OLLAMA_DEFAULT_MODEL
+        prompt = ollama_system_prompt or OLLAMA_DEFAULT_SYSTEM_PROMPT
+        key    = ollama_key or ""
         def call_fn(text: str, src: str, tgt: str) -> str:
             return ollama.call(text, src, tgt, url, model, prompt, key)
     elif service == "Google":

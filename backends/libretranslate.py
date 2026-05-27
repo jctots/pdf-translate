@@ -50,7 +50,12 @@ def call(text: str, source: str, target: str, url: str, key: str) -> str:
                 raise RateLimitError(
                     f"LibreTranslate rate limit exceeded after {len(_RETRY_DELAYS)} retries."
                 )
-            r.raise_for_status()
+            if not (200 <= r.status_code < 300):
+                raise httpx.HTTPStatusError(
+                    f"HTTP {r.status_code} from LibreTranslate: {r.text[:300]}",
+                    request=r.request,
+                    response=r,
+                )
             return r.json()["translatedText"]
         time.sleep(delay)
 
