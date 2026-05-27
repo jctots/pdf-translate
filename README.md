@@ -26,7 +26,8 @@ Most PDF translation tools either **send your files to the cloud** or **destroy 
 - 🔒 **Privacy-first** — use Ollama or LibreTranslate and your PDFs never leave your machine or LAN
 - 📐 **Layout preserved** — text is placed back at the original position; images, tables, and structure stay intact
 - 🖥️ **Self-hosted** — Docker Compose in two minutes; runs on any machine or home server
-- 🔌 **REST API included** — automate with curl, Python, or integrate with Paperless-ngx
+- 🔌 **REST API included** — automate with curl, Python, or any scripting environment
+- 🗂️ **Paperless-ngx ready** — webhook container auto-translates ingested documents; companion PDF linked and searchable
 - 🔍 **Scanned PDF support** — Tesseract OCR and Ollama vision models (glm-ocr) handle image-only PDFs
 - 📄 **Three output formats** — translated PDF, side-by-side comparison PDF, HTML reading view
 
@@ -114,6 +115,27 @@ curl -X DELETE http://localhost:7860/api/translate
 
 Swagger UI at [`/docs`](http://localhost:7860/docs) · Full reference in [docs/api.md](docs/api.md)
 
+## 🗂️ Paperless-ngx integration
+
+Automatically translate documents as they arrive in [Paperless-ngx](https://docs.paperless-ngx.com/). A companion translated PDF is uploaded alongside the original and linked as a **Document Link** custom field — fully local, no cloud.
+
+```bash
+# Add to your Paperless docker-compose.yml
+services:
+  pdf-translate-webhook:
+    image: ghcr.io/jctots/pdf-translate-paperless-webhook:latest
+    environment:
+      PAPERLESS_URL: http://paperless-ngx:8000
+      PAPERLESS_API_TOKEN: ${PAPERLESS_API_TOKEN}
+      PDF_TRANSLATE_URL: http://<pdf-translate-host>:7860
+      TRANSLATE_SOURCE_LANG: de   # or "auto" for all languages
+      TRANSLATE_TARGET_LANG: en
+```
+
+Then configure a Paperless Workflow (Settings → Workflows) to POST to `http://pdf-translate-webhook:8081/webhook` on document added.
+
+Full setup guide: [paperless_webhook/README.md](paperless_webhook/README.md)
+
 ## 🛠️ Advanced options
 
 | Option | Default | Purpose |
@@ -129,8 +151,9 @@ Swagger UI at [`/docs`](http://localhost:7860/docs) · Full reference in [docs/a
 | Doc | Contents |
 |-----|---------|
 | [User guide](docs/user-guide.md) | All UI options explained in detail |
-| [API reference](docs/api.md) | REST API, timeouts, Paperless-ngx integration |
+| [API reference](docs/api.md) | REST API endpoints, timeouts, queue behaviour |
 | [Backends](docs/backends.md) | Ollama and LibreTranslate setup (local + Docker Compose) |
+| [Paperless-ngx](paperless_webhook/README.md) | Webhook container — auto-translate on ingest |
 | [Testing](docs/testing.md) | Running the test suite |
 
 ## 🤝 Contributing
