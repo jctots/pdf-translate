@@ -18,6 +18,7 @@ See README.md for full configuration and Paperless Workflow setup.
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -387,13 +388,19 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         except Exception as exc:
             logger.error("webhook: failed to parse JSON: %s", exc)
 
-    # Try body fields first, fall back to query params
+    # Try body fields, then query params, then parse from doc_url
     doc_id = (
         payload.get("id")
         or payload.get("document_id")
         or request.query_params.get("id")
         or request.query_params.get("document_id")
     )
+    if not doc_id:
+        doc_url = payload.get("doc_url", "") or request.query_params.get("doc_url", "")
+        if doc_url:
+            m = re.search(r"/documents/(\d+)/", doc_url)
+            if m:
+                doc_id = m.group(1)
     if not doc_id:
         logger.warning("webhook: no document id found | payload keys: %s | query: %s",
                        list(payload.keys()), dict(request.query_params))
