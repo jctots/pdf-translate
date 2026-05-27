@@ -23,7 +23,7 @@ import time
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 # ---------------------------------------------------------------------------
@@ -77,6 +77,19 @@ API_FILTER_ICONS  = _bool_env("PDF_TRANSLATE_FILTER_ICONS",  True)
 API_DETECT_TABLES = _bool_env("PDF_TRANSLATE_DETECT_TABLES", True)
 
 PAPERLESS_HEADERS = {"Authorization": f"Token {PAPERLESS_TOKEN}"}
+
+
+def _require_webhook_key(authorization: str = Header(default="")) -> None:
+    """Optional API key guard for the webhook endpoint."""
+    key = os.environ.get("WEBHOOK_API_KEY", "")
+    if not key:
+        return  # no key configured — open access
+    if authorization != f"Bearer {key}":
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key. Pass 'Authorization: Bearer <key>' header.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 FIELD_TRANSLATION      = "translation"        # Document Link — points each doc to its translation counterpart
 TAG_AUTO_TRANSLATED    = "auto-translated"    # applied to companion docs at upload time
@@ -530,7 +543,8 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/webhook", summary="Paperless-ngx document webhook")
+@app.post("/webhook", summary="Paperless-ngx document webhook",
+          dependencies=[Depends(_require_webhook_key)])
 async def webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Receive a Paperless-ngx workflow webhook (document added trigger).

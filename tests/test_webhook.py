@@ -397,3 +397,40 @@ class TestHandleIdempotency:
         assert len(emitted) == 1
         assert emitted[0]["action"] == "skipped"
         assert emitted[0]["reason"] == "already translated"
+
+
+# ---------------------------------------------------------------------------
+# Webhook API key authentication
+# ---------------------------------------------------------------------------
+
+class TestWebhookAuth:
+    """WEBHOOK_API_KEY env var gates POST /webhook; GET /health stays open."""
+
+    def test_no_key_configured_allows_webhook(self, monkeypatch):
+        monkeypatch.delenv("WEBHOOK_API_KEY", raising=False)
+        r = http_client.post("/webhook", json={"id": 1})
+        # accepted or ignored — either is fine; must not be 401
+        assert r.status_code == 200
+        assert r.json().get("status") != "unauthorized"
+
+    def test_valid_key_allows_webhook(self, monkeypatch):
+        monkeypatch.setenv("WEBHOOK_API_KEY", "whsec123")
+        r = http_client.post("/webhook", json={"id": 1},
+                             headers={"Authorization": "Bearer whsec123"})
+        assert r.status_code == 200
+
+    def test_wrong_key_returns_401(self, monkeypatch):
+        monkeypatch.setenv("WEBHOOK_API_KEY", "whsec123")
+        r = http_client.post("/webhook", json={"id": 1},
+                             headers={"Authorization": "Bearer wrongkey"})
+        assert r.status_code == 401
+
+    def test_missing_auth_header_returns_401(self, monkeypatch):
+        monkeypatch.setenv("WEBHOOK_API_KEY", "whsec123")
+        r = http_client.post("/webhook", json={"id": 1})
+        assert r.status_code == 401
+
+    def test_health_always_open(self, monkeypatch):
+        monkeypatch.setenv("WEBHOOK_API_KEY", "whsec123")
+        r = http_client.get("/health")
+        assert r.status_code == 200
