@@ -85,6 +85,8 @@ python app.py
 
 Switch backends in the UI or via API — no restart needed.
 
+> 🔒 Ollama and LibreTranslate call only the URL you configure — no telemetry, no external traffic. [How to verify →](docs/privacy.md)
+
 ## 📦 Output formats
 
 Every translation produces three files:
@@ -149,6 +151,7 @@ Full setup guide: [paperless_webhook/README.md](paperless_webhook/README.md)
 
 | Option | Default | Purpose |
 |--------|---------|---------|
+| **`PDF_TRANSLATE_API_KEY`** | _(unset)_ | Require `Authorization: Bearer <key>` on all API endpoints. Gradio UI unaffected. [How to generate →](docs/privacy.md#securing-the-api) |
 | **Force OCR** | Off | Ignore the text layer; OCR every page as an image. For scanned or mixed PDFs. |
 | **Merge split lines** | Off | Merge word-level fragments before translation. For DTP/InDesign PDFs with many small blocks. |
 | **Detect table cells** | On | Shrink-to-fit text within table cells to preserve table structure. |
@@ -162,6 +165,7 @@ Full setup guide: [paperless_webhook/README.md](paperless_webhook/README.md)
 | [User guide](docs/user-guide.md) | All UI options explained in detail |
 | [API reference](docs/api.md) | REST API endpoints, timeouts, queue behaviour |
 | [Backends](docs/backends.md) | Ollama and LibreTranslate setup (local + Docker Compose) |
+| [Privacy](docs/privacy.md) | What each backend sends and how to verify it |
 | [Paperless-ngx](paperless_webhook/README.md) | Webhook container — auto-translate on ingest |
 | [Testing](docs/testing.md) | Running the test suite |
 

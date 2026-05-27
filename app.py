@@ -19,7 +19,7 @@ from typing import Literal, Optional
 import fitz  # PyMuPDF
 import gradio as gr
 import uvicorn
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
@@ -487,6 +487,19 @@ class ConfigUpdate(BaseModel):
 
 _MAX_UPLOAD_BYTES = int(os.environ.get("PDF_TRANSLATE_MAX_UPLOAD_MB", "100")) * 1024 * 1024
 
+
+def _require_api_key(authorization: str = Header(default="")) -> None:
+    """Optional API key guard. Pass 'Authorization: Bearer <key>' when set."""
+    key = os.environ.get("PDF_TRANSLATE_API_KEY", "")
+    if not key:
+        return  # no key configured — open access
+    if authorization != f"Bearer {key}":
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key. Pass 'Authorization: Bearer <key>' header.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
 _API_DESCRIPTION = """
 Self-hosted PDF translation service.
 
@@ -540,7 +553,8 @@ async def api_health():
     return {"status": "ok", "version": _VERSION, "backend": DEFAULT_BACKEND, "job": job_info}
 
 
-@api_app.get("/api/config", summary="Read configuration", tags=["Configuration"])
+@api_app.get("/api/config", summary="Read configuration", tags=["Configuration"],
+             dependencies=[Depends(_require_api_key)])
 async def api_config_get():
     """Return the current backend configuration. API key fields are masked."""
     cfg = load_config()
@@ -576,7 +590,8 @@ def _classify_error(msg: str, exc: BaseException | None = None) -> str:
     return "translation_error"
 
 
-@api_app.patch("/api/config", summary="Update UI configuration", tags=["Configuration"])
+@api_app.patch("/api/config", summary="Update UI configuration", tags=["Configuration"],
+               dependencies=[Depends(_require_api_key)])
 async def api_config_patch(update: ConfigUpdate):
     """
     Partially update the Gradio UI configuration (config.json).
@@ -596,7 +611,8 @@ async def api_config_patch(update: ConfigUpdate):
     return {"status": "ok", "updated": list(updates.keys())}
 
 
-@api_app.delete("/api/translate", summary="Cancel running translation", tags=["Translation"])
+@api_app.delete("/api/translate", summary="Cancel running translation", tags=["Translation"],
+                dependencies=[Depends(_require_api_key)])
 async def api_translate_cancel():
     """
     Request cancellation of the currently running translation.
@@ -614,7 +630,8 @@ async def api_translate_cancel():
     }
 
 
-@api_app.post("/api/translate", summary="Translate a PDF", tags=["Translation"])
+@api_app.post("/api/translate", summary="Translate a PDF", tags=["Translation"],
+              dependencies=[Depends(_require_api_key)])
 async def api_translate(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF file to translate"),

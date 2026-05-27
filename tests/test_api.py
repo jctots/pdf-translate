@@ -384,7 +384,7 @@ class TestTranslate:
         cleaned_path = mock_rmtree.call_args[0][0]
         assert str(tmp_path) in cleaned_path
 
-    def test_processing_options_forwarded(self, reset_job, minimal_pdf, tmp_path):
+    def test_processing_options_forwarded(self, reset_job, minimal_pdf, tmp_path):  # noqa: E301
         """merge_blocks, detect_tables, force_ocr values are forwarded to translate_sync."""
         from unittest.mock import MagicMock
         fake_translated = tmp_path / "translated.pdf"
@@ -413,3 +413,76 @@ class TestTranslate:
         assert kwargs.get("merge_blocks") is True
         assert kwargs.get("detect_tables") is False
         assert kwargs.get("force_ocr") is True
+
+
+# ---------------------------------------------------------------------------
+# API key authentication
+# ---------------------------------------------------------------------------
+
+class TestApiKey:
+    """PDF_TRANSLATE_API_KEY env var gates protected endpoints; health stays open."""
+
+    def test_no_key_configured_allows_translate(self, reset_job, minimal_pdf, tmp_path, monkeypatch):
+        monkeypatch.delenv("PDF_TRANSLATE_API_KEY", raising=False)
+        fake_translated = tmp_path / "t.pdf"
+        fake_sbs        = tmp_path / "s.pdf"
+        fake_reading    = tmp_path / "r.html"
+        fake_translated.write_bytes(b"%PDF-1.4 fake")
+        fake_sbs.write_bytes(b"%PDF-1.4 fake")
+        fake_reading.write_text("<html></html>", encoding="utf-8")
+        with patch("app.translate_sync", return_value=(str(fake_translated), str(fake_sbs), str(fake_reading))):
+            r = client.post(
+                "/api/translate",
+                files={"file": ("doc.pdf", minimal_pdf.read_bytes(), "application/pdf")},
+                data={"source": "en", "target": "nl"},
+            )
+        assert r.status_code == 200
+
+    def test_valid_key_allows_translate(self, reset_job, minimal_pdf, tmp_path, monkeypatch):
+        monkeypatch.setenv("PDF_TRANSLATE_API_KEY", "secret123")
+        fake_translated = tmp_path / "t.pdf"
+        fake_sbs        = tmp_path / "s.pdf"
+        fake_reading    = tmp_path / "r.html"
+        fake_translated.write_bytes(b"%PDF-1.4 fake")
+        fake_sbs.write_bytes(b"%PDF-1.4 fake")
+        fake_reading.write_text("<html></html>", encoding="utf-8")
+        with patch("app.translate_sync", return_value=(str(fake_translated), str(fake_sbs), str(fake_reading))):
+            r = client.post(
+                "/api/translate",
+                files={"file": ("doc.pdf", minimal_pdf.read_bytes(), "application/pdf")},
+                data={"source": "en", "target": "nl"},
+                headers={"Authorization": "Bearer secret123"},
+            )
+        assert r.status_code == 200
+
+    def test_wrong_key_returns_401_on_translate(self, reset_job, minimal_pdf, monkeypatch):
+        monkeypatch.setenv("PDF_TRANSLATE_API_KEY", "secret123")
+        r = client.post(
+            "/api/translate",
+            files={"file": ("doc.pdf", minimal_pdf.read_bytes(), "application/pdf")},
+            data={"source": "en", "target": "nl"},
+            headers={"Authorization": "Bearer wrongkey"},
+        )
+        assert r.status_code == 401
+
+    def test_missing_auth_header_returns_401(self, reset_job, minimal_pdf, monkeypatch):
+        monkeypatch.setenv("PDF_TRANSLATE_API_KEY", "secret123")
+        r = client.post(
+            "/api/translate",
+            files={"file": ("doc.pdf", minimal_pdf.read_bytes(), "application/pdf")},
+            data={"source": "en", "target": "nl"},
+        )
+        assert r.status_code == 401
+
+    def test_key_gates_config_patch(self, isolated_config, monkeypatch):
+        monkeypatch.setenv("PDF_TRANSLATE_API_KEY", "secret123")
+        r = client.patch("/api/config", json={"backend": "Ollama"})
+        assert r.status_code == 401
+        r = client.patch("/api/config", json={"backend": "Ollama"},
+                         headers={"Authorization": "Bearer secret123"})
+        assert r.status_code == 200
+
+    def test_health_always_open(self, reset_job, monkeypatch):
+        monkeypatch.setenv("PDF_TRANSLATE_API_KEY", "secret123")
+        r = client.get("/api/health")
+        assert r.status_code == 200
