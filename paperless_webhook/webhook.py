@@ -366,10 +366,21 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     Responds 200 immediately. Translation runs in the background — check
     TRANSLATE_LOG_FILE for results.
     """
-    payload = await request.json()
+    raw = await request.body()
+
+    try:
+        payload = json.loads(raw)
+    except Exception as exc:
+        logger.error("webhook: failed to parse payload: %s | raw body: %s", exc, raw[:500])
+        return JSONResponse({"status": "error", "reason": f"invalid JSON: {exc}"}, status_code=200)
+
+    if not isinstance(payload, dict):
+        logger.error("webhook: unexpected payload type %s | raw body: %s", type(payload), raw[:500])
+        return JSONResponse({"status": "error", "reason": "payload is not a JSON object"}, status_code=200)
 
     doc_id = payload.get("id") or payload.get("document_id")
     if not doc_id:
+        logger.warning("webhook: no document id in payload | keys: %s", list(payload.keys()))
         return JSONResponse({"status": "ignored", "reason": "no document id in payload"})
 
     # Use content from payload if present — saves one Paperless API call
